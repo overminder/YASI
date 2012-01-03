@@ -1,0 +1,20 @@
+J # u16, direct jump
+JIF # u16, direct jump
+JIFZ # u16, direct jump
+
+_last_u16_
+
+LOAD # u8
+STORE # u8
+
+LOADGLOBAL # u8
+STOREGLOBAL # u8
+
+LOADCONST # u8
+
+CALL # u8
+TAILCALL # u8
+
+_last_u8_
+
+RET
