@@ -1,4 +1,5 @@
 from pypy.rlib.debug import check_nonneg
+from pypy.rlib.jit import elidable
 from tvm.util import load_descr_file
 from tvm.lang.model import W_Root
 
@@ -30,10 +31,11 @@ def argwidth(opcode):
 
 class W_BytecodeFunction(W_Root):
     _immutable_ = True
+    _immutable_fields_ = ['consts_w[*]', 'names_w[*]']
     name = '#f'
 
     def __init__(self, code, nb_args, nb_locals, stacksize,
-                 const_w, module_w=None):
+                 consts_w, names_w, module_w=None):
         self.code = code
         #
         check_nonneg(nb_args)
@@ -43,8 +45,10 @@ class W_BytecodeFunction(W_Root):
         check_nonneg(stacksize)
         self.stacksize = stacksize
         #
-        self.const_w = const_w
+        self.consts_w = consts_w
         self.module_w = module_w
+        #
+        self.names_w = names_w # a list of local var names
 
     def to_string(self):
         return '#<bytecode-function %s>' % self.name

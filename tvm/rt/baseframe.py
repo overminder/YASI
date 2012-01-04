@@ -13,6 +13,15 @@ class W_ExecutionError(W_Error):
 
 class Frame(object):
     __metaclass__ = extendabletype
+    
+    @unroll_safe
+    def dropmany(self, n):
+        i = self.stacktop - n
+        assert i >= self.stackbase, 'stack underflow'
+        while i < self.stacktop:
+            self.stack_w[i] = None
+            i += 1
+        self.stacktop -= n
 
     def pop(self):
         t = self.stacktop - 1

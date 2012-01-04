@@ -13,7 +13,7 @@ STOREGLOBAL # u8
 LOADCONST # u8
 
 CALL # u8
-TAILCALL # u8
+#TAILCALL # u8
 
 _last_u8_
 

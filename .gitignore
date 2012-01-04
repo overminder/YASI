@@ -1,3 +1,5 @@
 *-c
 .*.swp
 *.pyc
+jitlog*
+jitsum*

@@ -6,7 +6,7 @@ def make_code(argl):
 def test_fibo(n):
     from tvm.rt.code import codemap, Op, W_BytecodeFunction
     from tvm.rt.prelude import populate_module
-    from tvm.rt.execution import Frame
+    from tvm.rt.execution import execute_function
     from tvm.lang.model import W_Integer, symbol, w_true
     from tvm.lang.env import ModuleDict
     #
@@ -41,8 +41,11 @@ def test_fibo(n):
                       Op.LOADGLOBAL, 4, # 'fibo
                       Op.CALL, 1, # push (fibo (- n 2))
                       Op.LOADGLOBAL, 5, # '+
-                      Op.TAILCALL, 2])
-    w_func = W_BytecodeFunction(code, 1, 1, 5, consts_w, w_global)
+                      Op.CALL, 2,
+                      Op.RET])
+    names_w = [symbol('n')]
+    w_func = W_BytecodeFunction(code, 1, 1, 5, consts_w, names_w, w_global)
+    w_func.name = 'fibo'
     w_global.setitem(w_fibo, w_func)
 
     maincode = make_code([Op.LOADCONST, 0,
@@ -52,10 +55,12 @@ def test_fibo(n):
 
     w_ten = W_Integer(n)
     w_main = W_BytecodeFunction(maincode, 0, 0, 2, [w_ten, w_func],
-                                w_global)
-    frame = Frame(w_main, [])
+                                [], w_global)
+    w_main.name = 'main'
+    #frame = Frame(w_main, [])
 
-    w_retval = frame.execute()
+    #w_retval = frame.execute()
+    w_retval = execute_function(w_main, [])
     print w_retval.to_string()
 
 def main(argv):
