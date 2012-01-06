@@ -7,12 +7,14 @@ from tvm.rt.jit import jitdriver
 unrolled_dispatchers = unrolling_iterable([(i, getattr(Frame, name))
         for (name, i) in codemap.iteritems()])
 
+# XXX trampolining is not trace-safe!
+@unroll_safe
 def execute_function(w_func, args_w):
-    #while True:
-    #    try:
-    return Frame(w_func, args_w).execute()
-    #    except Trampoline as tr:
-    #        w_func, args_w = tr.unpack_w()
+    while True:
+        try:
+            return Frame(w_func, args_w).execute()
+        except Trampoline as tr:
+            w_func, args_w = tr.unpack_w()
 
 class __extend__(Frame):
     @unroll_safe

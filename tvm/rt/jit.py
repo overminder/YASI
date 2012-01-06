@@ -29,7 +29,7 @@ def get_location(pc, w_func):
         tail = '(%d) ;; %s' % (oparg, w_func.names_w[oparg].to_string())
     elif op in [Op.LOADGLOBAL, Op.STOREGLOBAL, Op.LOADCONST]:
         tail = '(%d) ;; %s' % (oparg, w_func.consts_w[oparg].to_string())
-    elif op == Op.CALL:
+    elif op in [Op.CALL, Op.TAILCALL]:
         tail = '() ;; argc = %d' % oparg
     elif op == Op.RET:
         tail = '()'

@@ -96,6 +96,21 @@ class __extend__(Frame):
         #
         self.push(w_retval)
 
+    @unroll_safe
+    def TAILCALL(self, oparg):
+        w_func = self.pop()
+        args_w = self.popmany(oparg)
+        if isinstance(w_func, W_BytecodeFunction):
+            nb_args = w_func.nb_args
+            if oparg != nb_args:
+                raise W_ExecutionError('argcount').wrap()
+            raise Trampoline(w_func, args_w)
+        else:
+            assert isinstance(w_func, W_NativeFunction)
+            w_retval = w_func.call(args_w)
+            self.push(w_retval)
+            raise LeaveFrame
+
     def RET(self, oparg):
         raise LeaveFrame
 
