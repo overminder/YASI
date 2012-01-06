@@ -4,16 +4,47 @@ from tvm.rt.code import codemap, W_BytecodeFunction
 from tvm.rt.native import W_NativeFunction
 from tvm.lang.model import W_Root, W_Error
 
-class Trampoline(Exception):
-    def __init__(self, w_func, args_w):
-        self.w_func = w_func
-        self.args_w = args_w
+class ReturnFromTopLevel(Exception):
+    _immutable_ = True
+    def __init__(self, w_retval):
+        self.w_retval = w_retval
 
-    def unpack_w(self):
-        return self.w_func, self.args_w
+class Dump(object):
+    _immutable_ = True
+    _immutable_fields_ = ['stack_w[*]']
 
-class LeaveFrame(Exception):
-    pass
+    @unroll_safe
+    def __init__(self, frame):
+        self.pc = frame.pc
+        self.w_func = frame.w_func
+        self.stack_w = [None] * frame.stacktop
+        self.dump = frame.dump
+        #
+        i = 0
+        stacktop = frame.stacktop
+        while i < stacktop:
+            self.stack_w[i] = frame.stack_w[i]
+            i += 1
+
+    @unroll_safe
+    def restore(self, frame):
+        oldtop = frame.stacktop
+        frame.pc = self.pc
+        frame.w_func = self.w_func
+        frame.stackbase = self.w_func.nb_locals
+        frame.stacktop = len(self.stack_w)
+        frame.dump = self.dump
+        # restore virtual stack items
+        stacktop = frame.stacktop
+        i = 0
+        while i < stacktop:
+            frame.stack_w[i] = self.stack_w[i]
+            i += 1
+        # and delete garbage on vstack
+        while i < oldtop:
+            frame.stack_w[i] = None
+            i += 1
+
 
 class __extend__(Frame):
     _virtualizable2_ = [
@@ -21,26 +52,48 @@ class __extend__(Frame):
         'stacktop',
         'stackbase',
         'w_func',
+        'dump',
         'stack_w[*]',
     ]
 
-    _immutable_fields_ = [
-        'stackbase',
-        'w_func',
-    ]
+    pc = 0
+    stacktop = 0
+    stackbase = 0
+    w_func = None
+    dump = None
 
-    @unroll_safe
-    def __init__(self, w_func, args_w):
+    def __init__(self, stacksize=32):
         self = hint(self, access_directly=True,
                           fresh_virtualizable=True)
-        self.stack_w = [None] * w_func.stacksize
+        self.stack_w = [None] * stacksize
+
+    def enter(self, w_func):
         self.stackbase = w_func.nb_locals
         self.stacktop = self.stackbase
         self.w_func = w_func
         self.pc = 0
-        for i in xrange(len(args_w)):
-            w_arg = args_w[i]
-            self.stack_w[i] = w_arg
+
+    @unroll_safe
+    def enter_with_args(self, w_func, args_w):
+        oldtop = self.stacktop
+        self.enter(w_func)
+        nb_args = len(args_w)
+        i = 0
+        # set arguments
+        while i < nb_args:
+            self.stack_w[i] = args_w[i]
+            i += 1
+        # and delete garbage
+        while i < oldtop:
+            self.stack_w[i] = None
+            i += 1
+
+    def leave_with_retval(self, w_retval):
+        if self.dump:
+            self.dump.restore(self)
+            self.push(w_retval)
+        else:
+            raise ReturnFromTopLevel(w_retval)
 
     def nextbyte(self, code):
         pc = self.pc
@@ -88,13 +141,12 @@ class __extend__(Frame):
             nb_args = w_func.nb_args
             if oparg != nb_args:
                 raise W_ExecutionError('argcount').wrap()
-            #w_retval = Frame(w_func, args_w).execute()
-            w_retval = execute_function(w_func, args_w)
+            self.dump = Dump(self)
+            self.enter_with_args(w_func, args_w)
         else:
             assert isinstance(w_func, W_NativeFunction)
             w_retval = w_func.call(args_w)
-        #
-        self.push(w_retval)
+            self.push(w_retval)
 
     @unroll_safe
     def TAILCALL(self, oparg):
@@ -104,15 +156,14 @@ class __extend__(Frame):
             nb_args = w_func.nb_args
             if oparg != nb_args:
                 raise W_ExecutionError('argcount').wrap()
-            raise Trampoline(w_func, args_w)
+            self.enter_with_args(w_func, args_w)
         else:
             assert isinstance(w_func, W_NativeFunction)
             w_retval = w_func.call(args_w)
-            self.push(w_retval)
-            raise LeaveFrame
+            self.leave_with_retval(w_retval)
 
     def RET(self, oparg):
-        raise LeaveFrame
+        self.leave_with_retval(self.pop())
 
     def J(self, oparg):
         self.jump_to(oparg)

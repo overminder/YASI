@@ -1,24 +1,21 @@
 from pypy.rlib.unroll import unrolling_iterable
 from pypy.rlib.jit import hint, unroll_safe, dont_look_inside
 from tvm.rt.code import codemap, argwidth
-from tvm.rt.interp import Frame, LeaveFrame, Trampoline
+from tvm.rt.interp import Frame, ReturnFromTopLevel
 from tvm.rt.jit import jitdriver
 
 unrolled_dispatchers = unrolling_iterable([(i, getattr(Frame, name))
         for (name, i) in codemap.iteritems()])
 
-# XXX trampolining is not trace-safe!
-@unroll_safe
 def execute_function(w_func, args_w):
-    while True:
-        try:
-            return Frame(w_func, args_w).execute()
-        except Trampoline as tr:
-            w_func, args_w = tr.unpack_w()
+    frame = Frame()
+    frame.enter_with_args(w_func, args_w)
+    return frame.execute()
 
 class __extend__(Frame):
     @unroll_safe
     def dispatch(self, code):
+        # bytecode dispatch is folded into noop.
         opcode = self.nextbyte(code)
         width = argwidth(opcode)
         if width == 2:
@@ -41,10 +38,9 @@ class __extend__(Frame):
             while True:
                 jitdriver.jit_merge_point(pc=self.pc, w_func=self.w_func,
                                           frame=self)
-                self.stacktop = hint(self.stacktop, promote=True) # ?
                 self.dispatch(self.w_func.code)
-        except LeaveFrame:
-            return self.pop()
+        except ReturnFromTopLevel as ret:
+            return ret.w_retval
 
     def jump_to(self, dest):
         self.pc = dest

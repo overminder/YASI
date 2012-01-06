@@ -38,7 +38,10 @@ def test_loop(n):
                       Op.LOADGLOBAL, 4, # '+
                       Op.CALL, 2, # push (+ s (- n 1))
                       Op.STORE, 1, # write back to s
-                      Op.J, 0, 0 # turn tailcall into an loop
+                      Op.LOAD, 0,
+                      Op.LOAD, 1,
+                      Op.LOADGLOBAL, 3, # 'loop
+                      Op.TAILCALL, 2,
                      ])
     names_w = [symbol('n'), symbol('s')]
     w_func = W_BytecodeFunction(code, 2, 2, 5, consts_w, names_w, w_global)
@@ -125,7 +128,7 @@ def main(argv):
         n = int(argv[1])
     except (IndexError, ValueError):
         n = 30
-    test_loop(1 << n)
+    test_fibo(n)
     return 0
 
 def target(config, argl):
