@@ -2,7 +2,6 @@ from pypy.tool.pairtype import extendabletype
 from tvm.error import OperationError
 
 class W_Root(object):
-    __slots__ = []
     __metaclass__ = extendabletype
 
     def to_string(self):
@@ -53,8 +52,6 @@ class W_Root(object):
 
 
 class W_Pair(W_Root):
-    __slots__ = ['w_car', 'w_cdr']
-
     def __init__(self, w_car, w_cdr):
         self.w_car = w_car
         self.w_cdr = w_cdr
@@ -87,8 +84,7 @@ class W_Pair(W_Root):
         self.w_cdr = w_cdr
 
 class W_Integer(W_Root):
-    _immutable_fields_ = ['ival']
-    __slots__ = ['ival']
+    _immutable_ = True
 
     def __init__(self, ival):
         self.ival = ival
@@ -106,7 +102,7 @@ class W_Integer(W_Root):
         return w_false
 
 class W_Symbol(W_Root):
-    interned_w = {}
+    _immutable_ = True
 
     def __init__(self, sval):
         self.sval = sval
@@ -114,12 +110,19 @@ class W_Symbol(W_Root):
     def to_string(self):
         return self.sval
 
-def symbol(sval):
-    w_sym = W_Symbol.interned_w.get(sval, None)
-    if w_sym is None:
-        w_sym = W_Symbol(sval)
-        W_Symbol.interned_w[sval] = w_sym
-    return w_sym
+class InternState(object):
+    def __init__(self):
+        self.interned_w = {}
+
+    def intern(self, sval):
+        w_sym = self.interned_w.get(sval, None)
+        if w_sym is None:
+            w_sym = W_Symbol(sval)
+            self.interned_w[sval] = w_sym
+        return w_sym
+
+intern_state = InternState()
+symbol = intern_state.intern
 
 class GensymCounter(object):
     i = 0
