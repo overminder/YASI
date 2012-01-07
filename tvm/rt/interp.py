@@ -62,6 +62,7 @@ class __extend__(Frame):
     w_func = None
     dump = None
 
+    # stacksize will impose an constant factor on speed.
     def __init__(self, stacksize=32):
         self = hint(self, access_directly=True,
                           fresh_virtualizable=True)
