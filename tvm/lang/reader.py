@@ -1,8 +1,11 @@
+import sys
+from pypy.rlib.jit import dont_look_inside
 from pypy.rlib.parsing.makepackrat import (PackratParser, Status,
                                            BacktrackException)
 from tvm.lang.model import (W_Root, W_Integer, W_Pair, w_nil, w_true, w_false,
                             symbol, w_unspec)
 
+@dont_look_inside
 def read_string(source):
     exprs_w = SchemeParser(source).program()
     assert isinstance(exprs_w[0], W_Root) # XXX pypy hack
@@ -32,7 +35,7 @@ class SchemeParser(PackratParser):
         '#f';
 
     IDENT:
-        `[0-9a-zA-Z_!?@#$%&*+-/<>=]+`;
+        `[0-9a-zA-Z_!?@#$%&*+-/<>=\.]+`;
 
     EOF:
         !__any__;
@@ -45,12 +48,6 @@ class SchemeParser(PackratParser):
 
     sexpr:
         IGNORE*
-        '('
-        c = pair
-        IGNORE*
-        ')'
-        return {c}
-      | IGNORE*
         c = TRUE
         return {w_true}
       | IGNORE*
@@ -65,16 +62,22 @@ class SchemeParser(PackratParser):
         return {w_tag('quote', c)}
       | IGNORE*
         c = IDENT
-        return {symbol(c)};
+        return {symbol(c)}
+      | IGNORE*
+        '('
+        c = pair
+        IGNORE*
+        ')'
+        return {c};
 
     pair:
         car = sexpr
+        cdr = pair
+        return {W_Pair(car, cdr)}
+      | car = sexpr
         IGNORE*
         '.'
         cdr = sexpr
-        return {W_Pair(car, cdr)}
-      | car = sexpr
-        cdr = pair
         return {W_Pair(car, cdr)}
       | return {w_nil};
     '''

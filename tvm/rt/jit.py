@@ -25,18 +25,20 @@ def get_location(pc, w_func):
     if savedpc == 0:
         head = ('Enter Function %s:' % w_func.name) + head
     #
-    if op in [Op.LOAD, Op.STORE]:
+    if op in [Op.LOAD, Op.STORE, Op.LOADUPVAL, Op.STOREUPVAL]:
+        tail = '(%d) ;; well, some local var...' % oparg
+    elif op in [Op.LOADGLOBAL, Op.STOREGLOBAL]:
         tail = '(%d) ;; %s' % (oparg, w_func.names_w[oparg].to_string())
-    elif op in [Op.LOADGLOBAL, Op.STOREGLOBAL, Op.LOADCONST]:
+    elif op in [Op.LOADCONST, Op.BUILDCLOSURE]:
         tail = '(%d) ;; %s' % (oparg, w_func.consts_w[oparg].to_string())
     elif op in [Op.CALL, Op.TAILCALL]:
         tail = '() ;; argc = %d' % oparg
     elif op == Op.RET:
         tail = '()'
-    elif op in [Op.J, Op.JIF, Op.JIFZ]:
+    elif op in [Op.J, Op.JIF, Op.JIFNOT]:
         tail = '() ;; to %d' % oparg
     else:
-        assert 0
+        tail = ';; unknown opcode %d' % op
     return head + ' ' + tail
 
 jitdriver = JitDriver(greens=['pc', 'w_func'],

@@ -1,8 +1,10 @@
 from pypy.rlib.jit import hint, unroll_safe
 from tvm.rt.baseframe import Frame, W_ExecutionError
-from tvm.rt.code import codemap, W_BytecodeFunction
-from tvm.rt.native import W_NativeFunction
+from tvm.rt.code import codemap, W_BytecodeClosure, W_BytecodeFunction, W_UpVal
+from tvm.rt.native import W_NativeClosure
 from tvm.lang.model import W_Root, W_Error
+
+STACKSIZE = 32
 
 class ReturnFromTopLevel(Exception):
     _immutable_ = True
@@ -62,11 +64,11 @@ class __extend__(Frame):
     w_func = None
     dump = None
 
-    # stacksize will impose an constant factor on speed.
-    def __init__(self, stacksize=32):
+    # stacksize will impose an constant factor impact on speed.
+    def __init__(self):
         self = hint(self, access_directly=True,
                           fresh_virtualizable=True)
-        self.stack_w = [None] * stacksize
+        self.stack_w = [None] * STACKSIZE
 
     def enter(self, w_func):
         self.stackbase = w_func.nb_locals
@@ -75,16 +77,29 @@ class __extend__(Frame):
         self.pc = 0
 
     @unroll_safe
-    def enter_with_args(self, w_func, args_w):
+    def enter_with_args(self, w_func, args_w, upvals_w=None):
         oldtop = self.stacktop
         self.enter(w_func)
         nb_args = len(args_w)
+        nb_locals = w_func.nb_locals
         i = 0
         # set arguments
         while i < nb_args:
             self.stack_w[i] = args_w[i]
             i += 1
-        # and delete garbage
+        if upvals_w:
+            # clear other locals
+            upval_begin = nb_locals - len(upvals_w)
+            while i < upval_begin:
+                self.stackclear(i)
+                i += 1
+            # set upvals
+            while i < nb_locals:
+                idx = i - upval_begin
+                assert idx >= 0
+                self.stackset(i, upvals_w[idx])
+                i += 1
+        # and delete prev frame's garbage
         while i < oldtop:
             self.stack_w[i] = None
             i += 1
@@ -108,6 +123,11 @@ class __extend__(Frame):
         byte1 = self.nextbyte(code)
         return (byte1 << 8) | byte0
 
+    # bytecode dispatchers
+
+    def POP(self, _):
+        self.pop()
+
     def LOAD(self, oparg):
         w_val = self.stackref(oparg)
         if w_val is None:
@@ -117,8 +137,24 @@ class __extend__(Frame):
     def STORE(self, oparg):
         self.stackset(oparg, self.pop())
 
+    # turn the local var into an upval inplace.
+    def BUILDUPVAL(self, oparg):
+        w_val = self.stackref(oparg)
+        assert not isinstance(w_val, W_UpVal)
+        self.stackset(oparg, W_UpVal(w_val))
+
+    def LOADUPVAL(self, oparg):
+        w_val = self.stackref(oparg)
+        assert isinstance(w_val, W_UpVal)
+        self.push(w_val.w_value)
+
+    def STOREUPVAL(self, oparg):
+        w_val = self.stackref(oparg)
+        assert isinstance(w_val, W_UpVal)
+        w_val.w_value = self.pop()
+
     def LOADGLOBAL(self, oparg):
-        w_key = self.w_func.consts_w[oparg]
+        w_key = self.w_func.names_w[oparg]
         w_val = self.w_func.module_w.getitem(w_key)
         if w_val is None:
             raise W_ExecutionError('unbound global variable %s' %
@@ -126,7 +162,7 @@ class __extend__(Frame):
         self.push(w_val)
 
     def STOREGLOBAL(self, oparg):
-        w_key = self.w_func.consts_w[oparg]
+        w_key = self.w_func.names_w[oparg]
         w_val = self.pop()
         self.w_func.module_w.setitem(w_key, w_val)
 
@@ -134,36 +170,51 @@ class __extend__(Frame):
         self.push(self.w_func.consts_w[oparg])
 
     @unroll_safe
+    def BUILDCLOSURE(self, oparg):
+        w_func = self.w_func.consts_w[oparg]
+        assert isinstance(w_func, W_BytecodeFunction)
+        upval_descrs = w_func.upval_descrs
+        nb_upvals = len(upval_descrs)
+        upvals_w = [None] * nb_upvals
+        i = 0
+        while i < nb_upvals:
+            upvals_w[i] = self.stackref(ord(upval_descrs[i]))
+            i += 1
+        w_closure = W_BytecodeClosure(w_func, upvals_w)
+        self.push(w_closure)
+
+    @unroll_safe
     def CALL(self, oparg):
-        from tvm.rt.execution import execute_function
-        w_func = self.pop()
+        w_closure = self.pop()
         args_w = self.popmany(oparg)
-        if isinstance(w_func, W_BytecodeFunction):
+        if isinstance(w_closure, W_BytecodeClosure):
+            w_func = w_closure.w_func
             nb_args = w_func.nb_args
             if oparg != nb_args:
                 raise W_ExecutionError('argcount').wrap()
-            self.dump = Dump(self)
-            self.enter_with_args(w_func, args_w)
+            self.dump = Dump(self) # save current state
+            self.enter_with_args(w_func, args_w, w_closure.upvals_w)
         else:
-            assert isinstance(w_func, W_NativeFunction)
-            w_retval = w_func.call(args_w)
+            assert isinstance(w_closure, W_NativeClosure)
+            w_retval = w_closure.call(args_w)
             self.push(w_retval)
 
     @unroll_safe
     def TAILCALL(self, oparg):
-        w_func = self.pop()
+        w_closure = self.pop()
         args_w = self.popmany(oparg)
-        if isinstance(w_func, W_BytecodeFunction):
+        if isinstance(w_closure, W_BytecodeClosure):
+            w_func = w_closure.w_func
             nb_args = w_func.nb_args
             if oparg != nb_args:
                 raise W_ExecutionError('argcount').wrap()
-            self.enter_with_args(w_func, args_w)
+            self.enter_with_args(w_func, args_w, w_closure.upvals_w)
         else:
-            assert isinstance(w_func, W_NativeFunction)
-            w_retval = w_func.call(args_w)
+            assert isinstance(w_closure, W_NativeClosure)
+            w_retval = w_closure.call(args_w)
             self.leave_with_retval(w_retval)
 
-    def RET(self, oparg):
+    def RET(self, _):
         self.leave_with_retval(self.pop())
 
     def J(self, oparg):

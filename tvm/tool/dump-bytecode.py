@@ -1,10 +1,5 @@
 #!/usr/bin/env python
-
-import os
-import sys
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(HERE, '../../')))
-
+import path_fix
 from datetime import datetime
 from tvm.rt.code import codenames, argwidth
 
