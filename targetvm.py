@@ -1,4 +1,5 @@
 import sys
+from tvm import config
 from tvm.lang.reader import read_string
 from tvm.rt.prelude import populate_module
 from tvm.rt.execution import execute_function
@@ -26,6 +27,14 @@ def main(argv):
     except (IndexError, ValueError):
         print 'usage: %s [bytecode-file-name]' % argv[0]
         return 1
+    try:
+        if argv[2] == '--stacksize':
+            stacksize = int(argv[3])
+            assert stacksize >= 0
+            config.default.vm_stacksize = stacksize
+    except (IndexError, ValueError):
+        pass
+
     run_compiled_code(filename)
     return 0
 

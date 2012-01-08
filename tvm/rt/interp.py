@@ -1,10 +1,9 @@
 from pypy.rlib.jit import hint, unroll_safe
+from tvm import config
 from tvm.rt.baseframe import Frame, W_ExecutionError
 from tvm.rt.code import codemap, W_BytecodeClosure, W_BytecodeFunction, W_UpVal
 from tvm.rt.native import W_NativeClosure
 from tvm.lang.model import W_Root, W_Error
-
-STACKSIZE = 32
 
 class ReturnFromTopLevel(Exception):
     _immutable_ = True
@@ -68,7 +67,7 @@ class __extend__(Frame):
     def __init__(self):
         self = hint(self, access_directly=True,
                           fresh_virtualizable=True)
-        self.stack_w = [None] * STACKSIZE
+        self.stack_w = [None] * config.default.vm_stacksize
 
     def enter(self, w_func):
         self.stackbase = w_func.nb_locals

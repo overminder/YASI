@@ -84,6 +84,46 @@ class W_Eqp(W_NativeClosure):
         w_lhs, w_rhs, = args_w
         return w_lhs.is_w(w_rhs)
 
+class W_Integerp(W_NativeClosure):
+    _symbol_ = 'integer?'
+
+    def call(self, args_w):
+        assert len(args_w) == 1
+        w_arg, = args_w
+        return w_boolean(isinstance(w_arg, W_Integer))
+
+class W_Symbolp(W_NativeClosure):
+    _symbol_ = 'symbol?'
+
+    def call(self, args_w):
+        assert len(args_w) == 1
+        w_arg, = args_w
+        return w_boolean(isinstance(w_arg, W_Symbol))
+
+class W_Pairp(W_NativeClosure):
+    _symbol_ = 'pair?'
+
+    def call(self, args_w):
+        assert len(args_w) == 1
+        w_arg, = args_w
+        return w_boolean(isinstance(w_arg, W_Pair))
+
+class W_Nullp(W_NativeClosure):
+    _symbol_ = 'null?'
+
+    def call(self, args_w):
+        assert len(args_w) == 1
+        w_arg, = args_w
+        return w_boolean(w_arg.is_null())
+
+class W_Booleanp(W_NativeClosure):
+    _symbol_ = 'boolean?'
+
+    def call(self, args_w):
+        assert len(args_w) == 1
+        w_arg, = args_w
+        return w_boolean(isinstance(w_arg, W_Boolean))
+
 class W_Car(W_NativeClosure):
     _symbol_ = 'car'
 
@@ -145,6 +185,7 @@ class W_OpenLibraryHandle(W_NativeClosure):
 class W_BuildForeignFunction(W_NativeClosure):
     _symbol_ = 'build-foreign-function'
 
+    @unroll_safe
     def call(self, args_w):
         from tvm.rt.ffi import W_CDLL
         assert len(args_w) == 4
