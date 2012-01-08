@@ -1,6 +1,6 @@
 from tvm.rt.code import codemap, Op, W_BytecodeFunction
 from tvm.rt.prelude import populate_module
-from tvm.rt.execution import Frame
+from tvm.rt.execution import execute_function
 from tvm.lang.model import W_Integer, symbol, w_true
 from tvm.lang.env import ModuleDict
 
@@ -18,9 +18,9 @@ def test_add():
     w_add = symbol('+')
     w_global = ModuleDict()
     populate_module(w_global)
-    w_func = W_BytecodeFunction(code, 0, 0, 3, [w_one, w_two, w_add], w_global)
-    frame = Frame(w_func, [])
-    w_retval = frame.execute()
+    w_func = W_BytecodeFunction(code, 0, 0, 3, [w_one, w_two, w_add],
+                                None, w_global)
+    w_retval = execute_function(w_func, [])
     assert w_retval.to_int() == 3
 
 def test_cond():
@@ -34,9 +34,9 @@ def test_cond():
     w_lt = symbol('<')
     w_global = ModuleDict()
     populate_module(w_global)
-    w_func = W_BytecodeFunction(code, 0, 0, 3, [w_one, w_two, w_lt], w_global)
-    frame = Frame(w_func, [])
-    w_retval = frame.execute()
+    w_func = W_BytecodeFunction(code, 0, 0, 3, [w_one, w_two, w_lt],
+                                None, w_global)
+    w_retval = execute_function(w_func, [])
     assert w_retval is w_true
  
 def test_call():
@@ -49,7 +49,7 @@ def test_call():
                      Op.CALL, 2,
                      Op.RET)
     w_lt = symbol('<')
-    w_func = W_BytecodeFunction(code, 2, 2, 5, [w_lt], w_global)
+    w_func = W_BytecodeFunction(code, 2, 2, 5, [w_lt], None, w_global)
 
     maincode = make_code(Op.LOADCONST, 0,
                          Op.LOADCONST, 1,
@@ -60,10 +60,9 @@ def test_call():
     w_one = W_Integer(1)
     w_two = W_Integer(2)
     w_main = W_BytecodeFunction(maincode, 0, 0, 3, [w_one, w_two, w_func],
-                                w_global)
-    frame = Frame(w_main, [])
+                                None, w_global)
 
-    w_retval = frame.execute()
+    w_retval = execute_function(w_main, [])
     assert w_retval is w_true
  
 def test_tailcall1():
@@ -75,7 +74,7 @@ def test_tailcall1():
                      Op.LOADGLOBAL, 0,
                      Op.TAILCALL, 2)
     w_lt = symbol('<')
-    w_func = W_BytecodeFunction(code, 2, 2, 5, [w_lt], w_global)
+    w_func = W_BytecodeFunction(code, 2, 2, 5, [w_lt], None, w_global)
 
     maincode = make_code(Op.LOADCONST, 0,
                          Op.LOADCONST, 1,
@@ -86,10 +85,8 @@ def test_tailcall1():
     w_one = W_Integer(1)
     w_two = W_Integer(2)
     w_main = W_BytecodeFunction(maincode, 0, 0, 3, [w_one, w_two, w_func],
-                                w_global)
-    frame = Frame(w_main, [])
-
-    w_retval = frame.execute()
+                                None, w_global)
+    w_retval = execute_function(w_main, [])
     assert w_retval is w_true
  
 def test_fibo():
@@ -107,7 +104,7 @@ def test_fibo():
                      Op.LOADCONST, 0, # 2
                      Op.LOADGLOBAL, 1, # '<
                      Op.CALL, 2, # push (< n 2)
-                     Op.JIFZ, 14, 0, # to recur_case
+                     Op.JIFNOT, 14, 0, # to recur_case
                      Op.LOAD, 0, # n
                      Op.RET, # return n
                      # recur_case
@@ -125,7 +122,7 @@ def test_fibo():
                      Op.CALL, 1, # push (fibo (- n 2))
                      Op.LOADGLOBAL, 5, # '+
                      Op.TAILCALL, 2)
-    w_func = W_BytecodeFunction(code, 1, 1, 5, consts_w, w_global)
+    w_func = W_BytecodeFunction(code, 1, 1, 5, consts_w, None, w_global)
     w_global.setitem(w_fibo, w_func)
 
     maincode = make_code(Op.LOADCONST, 0,
@@ -135,9 +132,8 @@ def test_fibo():
 
     w_ten = W_Integer(10)
     w_main = W_BytecodeFunction(maincode, 0, 0, 2, [w_ten, w_func],
-                                w_global)
-    frame = Frame(w_main, [])
+                                None, w_global)
 
-    w_retval = frame.execute()
+    w_retval = execute_function(w_main, [])
     assert w_retval.to_int() == 55
  

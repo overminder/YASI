@@ -154,6 +154,9 @@ class W_Boolean(W_Root):
         else:
             return '#f'
 
+    def to_bool(self):
+        return self.bval
+
 w_true = W_Boolean(True)
 
 w_false = W_Boolean(False)

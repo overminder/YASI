@@ -1,6 +1,6 @@
 J # u16, direct jump
 JIF # u16, direct jump
-JIFZ # u16, direct jump
+JIFNOT # u16, direct jump
 
 _last_u16_
 

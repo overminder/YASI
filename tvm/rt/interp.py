@@ -174,7 +174,7 @@ class __extend__(Frame):
         if w_val.to_bool():
             self.jump_to(oparg)
 
-    def JIFZ(self, oparg):
+    def JIFNOT(self, oparg):
         w_val = self.pop()
         if not w_val.to_bool():
             self.jump_to(oparg)

@@ -35,7 +35,7 @@ class W_BytecodeFunction(W_Root):
     name = '#f'
 
     def __init__(self, code, nb_args, nb_locals, stacksize,
-                 consts_w, names_w, module_w=None):
+                 consts_w, names_w, module_w):
         self.code = code
         #
         check_nonneg(nb_args)

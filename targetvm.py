@@ -36,7 +36,7 @@ def test_loop(n):
                       Op.LOADCONST, 0, # 1
                       Op.LOADGLOBAL, 1, # '<
                       Op.CALL, 2, # push (< n 1)
-                      Op.JIFZ, 14, 0, # to recur_case
+                      Op.JIFNOT, 14, 0, # to recur_case
                       Op.LOAD, 1, # s
                       Op.RET, # return s
                       # recur_case
@@ -99,7 +99,7 @@ def test_fibo(n):
                       Op.LOADCONST, 0, # 2
                       Op.LOADGLOBAL, 1, # '<
                       Op.CALL, 2, # push (< n 2)
-                      Op.JIFZ, 14, 0, # to recur_case
+                      Op.JIFNOT, 14, 0, # to recur_case
                       Op.LOAD, 0, # n
                       Op.RET, # return n
                       # recur_case
@@ -140,8 +140,7 @@ def main(argv):
         n = int(argv[1])
     except (IndexError, ValueError):
         n = 30
-    #test_fibo(n)
-    test_fficall()
+    test_fibo(n)
     return 0
 
 def target(config, argl):
