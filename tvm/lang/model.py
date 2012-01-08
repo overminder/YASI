@@ -145,23 +145,18 @@ w_nil = W_Nil()
 
 
 class W_Boolean(W_Root):
-    pass
+    def __init__(self, bval):
+        self.bval = bval
 
-
-class W_True(W_Boolean):
     def to_string(self):
-        return '#t'
+        if self.bval:
+            return '#t'
+        else:
+            return '#f'
 
-w_true = W_True()
+w_true = W_Boolean(True)
 
-class W_False(W_Boolean):
-    def to_string(self):
-        return '#f'
-
-    def to_bool(self):
-        return False
-
-w_false = W_False()
+w_false = W_Boolean(False)
 
 def w_boolean(bval):
     if bval:

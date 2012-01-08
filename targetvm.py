@@ -3,6 +3,18 @@ import sys
 def make_code(argl):
     return ''.join([chr(bytecode) for bytecode in argl])
 
+def test_fficall():
+    from tvm.rt.ffi import W_CDLL
+    from tvm.lang.model import W_Integer, W_Symbol, symbol
+    w_libc = W_CDLL('libc.so.6')
+    argtypes_w = [W_Symbol, W_Integer]
+    w_restype = W_Integer
+    w_printf = w_libc.getpointer('printf', argtypes_w, w_restype)
+    w_res = w_printf.call([symbol('hello, %ld\n'), W_Integer(42)])
+    print w_res.to_string()
+    print w_libc.to_string()
+    print w_printf.to_string()
+
 def test_loop(n):
     from tvm.error import OperationError
     from tvm.rt.code import codemap, Op, W_BytecodeFunction
@@ -128,7 +140,8 @@ def main(argv):
         n = int(argv[1])
     except (IndexError, ValueError):
         n = 30
-    test_fibo(n)
+    #test_fibo(n)
+    test_fficall()
     return 0
 
 def target(config, argl):
