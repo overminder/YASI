@@ -1,5 +1,6 @@
 import sys
 from tvm import config
+from tvm.error import OperationError
 from tvm.lang.reader import read_string
 from tvm.rt.prelude import populate_module
 from tvm.rt.execution import execute_function
@@ -34,7 +35,11 @@ def main(argv):
     except (IndexError, ValueError):
         pass
 
-    run_compiled_code(filename)
+    try:
+        run_compiled_code(filename)
+    except OperationError as e:
+        print e.unwrap().to_string()
+        return 1
     return 0
 
 def target(config, argl):

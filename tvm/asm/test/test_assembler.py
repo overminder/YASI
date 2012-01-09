@@ -5,7 +5,7 @@ compiled_source = '''
 (BYTECODE-FUNCTION
   (NAME main)
   (CODE (255 254 253 252))
-  (NB-ARGS 0)
+  (NB-ARGS 0 #f)
   (NB-LOCALS 0)
   (UPVAL-DESCRS ())
   (CONSTS (10 20 30))
@@ -13,9 +13,9 @@ compiled_source = '''
   (FUNCTIONS ((BYTECODE-FUNCTION
                 (NAME some-func)
                 (CODE (1 2 3 3 4 5))
-                (NB-ARGS 2)
+                (NB-ARGS 2 #f)
                 (NB-LOCALS 4)
-                (UPVAL-DESCRS (0))
+                (UPVAL-DESCRS ((0 0) (1 2)))
                 (CONSTS (foo bar (1 2)))
                 (NAMES (+ - * /))
                 (FUNCTIONS ())))))

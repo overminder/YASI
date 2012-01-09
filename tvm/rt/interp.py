@@ -93,24 +93,22 @@ class __extend__(Frame):
         i = 0
         # set arguments
         while i < nb_args:
-            self.stack_w[i] = args_w[i]
+            self.stackset(i, args_w[i])
             i += 1
-        if upvals_w:
-            # clear other locals
-            upval_begin = nb_locals - len(upvals_w)
-            while i < upval_begin:
-                self.stackclear(i)
-                i += 1
-            # set upvals
-            while i < nb_locals:
-                idx = i - upval_begin
-                assert idx >= 0
-                self.stackset(i, upvals_w[idx])
-                i += 1
         # and delete prev frame's garbage
         while i < oldtop:
-            self.stack_w[i] = None
+            self.stackclear(i)
             i += 1
+        if upvals_w:
+            # set upvals, since upvals are interleaved with normal locals,
+            # we need to apply some complex transformations...
+            i = 0
+            upval_descrs = w_func.upval_descrs
+            nb_upvals = len(upvals_w)
+            while i < nb_upvals:
+                to_index = ord(upval_descrs[(i << 1) | 1])
+                self.stackset(to_index, upvals_w[i])
+                i += 1
 
     def leave_with_retval(self, w_retval):
         if self.dump:
@@ -122,58 +120,45 @@ class __extend__(Frame):
     @unroll_safe
     def call_closure(self, w_closure, args_w, tailp):
         nb_args_supplied = len(args_w)
-        if not tailp:
-            if isinstance(w_closure, W_BytecodeClosure):
-                w_func = w_closure.w_func
-                nb_args = w_func.nb_args
-                if not w_func.has_vararg:
-                    # fast path.
-                    if nb_args_supplied != nb_args:
-                        raise W_ExecutionError('argcount').wrap()
+        if isinstance(w_closure, W_BytecodeClosure):
+            w_func = w_closure.w_func
+            nb_args = w_func.nb_args
+            if not w_func.has_vararg:
+                # fast path.
+                if nb_args_supplied != nb_args:
+                    raise W_ExecutionError('%s require exactly %d '
+                    'argument, but got %s (%s)' %
+                    (w_func.name, nb_args, nb_args_supplied,
+                     [w_x.to_string() for w_x in args_w]),
+                    '%s' % self.w_func.to_string()).wrap()
+                if not tailp:
                     self.dump = Dump(self) # save current state
-                    self.enter_with_args(w_func, args_w, w_closure.upvals_w)
-                else:
-                    if nb_args_supplied < nb_args - 1:
-                        raise W_ExecutionError('argcount').wrap()
+                self.enter_with_args(w_func, args_w, w_closure.upvals_w)
+            else:
+                if nb_args_supplied < nb_args - 1:
+                    raise W_ExecutionError('%s require at least %d '
+                    'argument, but got %s (%s)' %
+                    (w_func.name, nb_args - 1, nb_args_supplied,
+                     [w_x.to_string() for w_x in args_w]),
+                    '%s' % self.w_func.to_string()).wrap()
+                if not tailp:
                     self.dump = Dump(self)
-                    slice_start = nb_args - 1
-                    assert slice_start >= 0
-                    w_vararg = list_to_pair_unroll(args_w[slice_start:])
-                    truncated_args_w = args_w[:nb_args]
-                    truncated_args_w[nb_args - 1] = w_vararg
-                    self.enter_with_args(w_func, truncated_args_w,
-                                         w_closure.upvals_w)
-            elif isinstance(w_closure, W_NativeClosure):
-                w_retval = w_closure.call(args_w)
+                slice_start = nb_args - 1
+                assert slice_start >= 0
+                w_vararg = list_to_pair_unroll(args_w[slice_start:])
+                truncated_args_w = args_w[:nb_args]
+                truncated_args_w[nb_args - 1] = w_vararg
+                self.enter_with_args(w_func, truncated_args_w,
+                                     w_closure.upvals_w)
+        elif isinstance(w_closure, W_NativeClosure):
+            w_retval = w_closure.call(args_w)
+            if not tailp:
                 self.push(w_retval)
             else:
-                assert isinstance(w_closure, W_NativeClosureX)
-                w_closure.call_with_frame(args_w, self, tailp=False)
-        else:
-            if isinstance(w_closure, W_BytecodeClosure):
-                w_func = w_closure.w_func
-                nb_args = w_func.nb_args
-                if not w_func.has_vararg:
-                    # fast path.
-                    if nb_args_supplied != nb_args:
-                        raise W_ExecutionError('argcount').wrap()
-                    self.enter_with_args(w_func, args_w, w_closure.upvals_w)
-                else:
-                    if nb_args_supplied < nb_args - 1:
-                        raise W_ExecutionError('argcount').wrap()
-                    slice_start = nb_args - 1
-                    assert slice_start >= 0
-                    w_vararg = list_to_pair_unroll(args_w[slice_start:])
-                    truncated_args_w = args_w[:nb_args]
-                    truncated_args_w[nb_args - 1] = w_vararg
-                    self.enter_with_args(w_func, truncated_args_w,
-                                         w_closure.upvals_w)
-            elif isinstance(w_closure, W_NativeClosure):
-                w_retval = w_closure.call(args_w)
                 self.leave_with_retval(w_retval)
-            else:
-                assert isinstance(w_closure, W_NativeClosureX)
-                w_closure.call_with_frame(args_w, self, tailp=True)
+        else:
+            assert isinstance(w_closure, W_NativeClosureX)
+            w_closure.call_with_frame(args_w, self, tailp=tailp)
 
     def nextbyte(self, code):
         pc = self.pc
@@ -238,11 +223,11 @@ class __extend__(Frame):
         w_func = self.w_func.functions_w[oparg]
         assert isinstance(w_func, W_BytecodeFunction)
         upval_descrs = w_func.upval_descrs
-        nb_upvals = len(upval_descrs)
+        nb_upvals = len(upval_descrs) >> 1
         upvals_w = [None] * nb_upvals
         i = 0
         while i < nb_upvals:
-            upvals_w[i] = self.stackref(ord(upval_descrs[i]))
+            upvals_w[i] = self.stackref(ord(upval_descrs[i << 1]))
             i += 1
         w_closure = w_func.build_closure(upvals_w)
         self.push(w_closure)

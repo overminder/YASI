@@ -32,7 +32,12 @@ def load_bytecode_function(w_expr, w_module):
     (w_tag, w_upval_descrs), _ = fields_w[5].to_list()
     assert w_tag.to_string() == 'UPVAL-DESCRS'
     descrlist_w, _ = w_upval_descrs.to_list()
-    upval_descrs = ''.join([chr(c.to_int()) for c in descrlist_w])
+    descr_chars = []
+    for w_descr in descrlist_w:
+        (w_from, w_to), _ = w_descr.to_list()
+        descr_chars.append(chr(w_from.to_int()))
+        descr_chars.append(chr(w_to.to_int()))
+    upval_descrs = ''.join(descr_chars)
     #
     (w_tag, w_consts), _ = fields_w[6].to_list()
     assert w_tag.to_string() == 'CONSTS'
@@ -63,8 +68,14 @@ def dump_bytecode_function(w_func):
                                 w_boolean(w_func.has_vararg)])
     fields_w[4] = list_to_pair([symbol('NB-LOCALS'),
                                 W_Integer(w_func.nb_locals)])
-    w_upval_descrs = list_to_pair([W_Integer(ord(c))
-                                   for c in w_func.upval_descrs])
+    upval_descrs_w = []
+    i = 0
+    while i < len(w_func.upval_descrs):
+        c0, c1 = w_func.upval_descrs[i], w_func.upval_descrs[i + 1]
+        i += 2
+        upval_descrs_w.append(list_to_pair([W_Integer(ord(c0)),
+                                            W_Integer(ord(c1))]))
+    w_upval_descrs = list_to_pair(upval_descrs_w[:])
     fields_w[5] = list_to_pair([symbol('UPVAL-DESCRS'), w_upval_descrs])
     w_consts = list_to_pair(w_func.consts_w)
     fields_w[6] = list_to_pair([symbol('CONSTS'), w_consts])

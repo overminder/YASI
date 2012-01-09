@@ -9,7 +9,7 @@ class W_ExecutionError(W_Error):
         self.where = where
 
     def to_string(self):
-        return '<ExecutionError: %s at %s>' % (self.msg, self.where)
+        return '#<ExecutionError: %s at %s>' % (self.msg, self.where)
 
 class Frame(object):
     __metaclass__ = extendabletype

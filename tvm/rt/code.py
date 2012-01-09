@@ -55,7 +55,7 @@ class W_BytecodeFunction(W_Root):
         check_nonneg(nb_locals)
         self.nb_locals = nb_locals # args + locals + upvals
         #
-        self.upval_descrs = upval_descrs
+        self.upval_descrs = upval_descrs # [chr, chr, ...], from and to
         self.consts_w = consts_w
         self.names_w = names_w # a list of local var names
         self.functions_w = functions_w # a list of plain functions

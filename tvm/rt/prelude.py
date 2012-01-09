@@ -1,12 +1,13 @@
 from pypy.rlib.jit import hint, unroll_safe
 from tvm.asm.assembler import load_bytecode_function, dump_bytecode_function
+from tvm.rt.baseframe import W_ExecutionError
 from tvm.rt.code import W_BytecodeClosure, W_BytecodeFunction
 from tvm.rt.native import W_NativeClosure, W_NativeClosureX
 from tvm.lang.reader import read_string
 from tvm.lang.model import (W_Pair, W_Root, w_boolean, W_Integer,
                             W_Boolean, W_Symbol, symbol,
                             W_Unspecified, w_unspec, W_String,
-                            W_File, gensym)
+                            W_File, gensym, w_eof)
 
 prelude_registry = []
 
@@ -128,6 +129,14 @@ class W_Eqp(W_NativeClosure):
         w_lhs, w_rhs, = args_w
         return w_lhs.is_w(w_rhs)
 
+class W_Equalp(W_NativeClosure):
+    _symbol_ = 'equal?'
+
+    def call(self, args_w):
+        assert len(args_w) == 2
+        w_lhs, w_rhs, = args_w
+        return w_lhs.equal_w(w_rhs)
+
 class W_Integerp(W_NativeClosure):
     _symbol_ = 'integer?'
 
@@ -176,6 +185,14 @@ class W_Booleanp(W_NativeClosure):
         w_arg, = args_w
         return w_boolean(isinstance(w_arg, W_Boolean))
 
+class W_EofObjectp(W_NativeClosure):
+    _symbol_ = 'eof-object?'
+
+    def call(self, args_w):
+        assert len(args_w) == 1
+        w_arg, = args_w
+        return w_arg.is_w(w_eof)
+
 class W_Car(W_NativeClosure):
     _symbol_ = 'car'
 
@@ -222,7 +239,17 @@ class W_Exit(W_NativeClosure):
     _symbol_ = 'exit'
 
     def call(self, args_w):
-        raise SystemExit(0)
+        raise W_ExecutionError('SystemExit raised', '(exit)').wrap()
+
+class W_Error(W_NativeClosureX):
+    _symbol_ = 'error'
+
+    def call_with_frame(self, args_w, frame, tailp):
+        assert len(args_w) == 1
+        w_msg, = args_w
+        raise W_ExecutionError('User-raised error: (error %s)' %
+                               w_msg.to_string(),
+                               frame.w_func.to_string()).wrap()
 
 class W_OpenInputFile(W_NativeClosure):
     _symbol_ = 'open-input-file'
@@ -281,8 +308,7 @@ class W_Gensym(W_NativeClosure):
     _symbol_ = 'gensym'
 
     def call(self, args_w):
-        assert len(args_w) == 0
-        return gensym()
+        return gensym() # XXX ignoring argument
 
 # some custom functions
 

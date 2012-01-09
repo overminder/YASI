@@ -133,7 +133,7 @@
       ([eq? type 'upval]
        (function 'emit 'LOADUPVAL (function 'get-upval name)))
       (else
-       (error 'not-reached)))))
+       (error `(not-reached: compile-var-in ,name => ,type))))))
 
 (define (compile-const-in const function)
   (let ([index (function 'intern-const const)])
@@ -175,7 +175,7 @@
         ([eq? type 'upval]
          (function 'emit 'STOREUPVAL (function 'get-upval name)))
         (else
-         (error 'not-reached)))))
+         (error '(not-reached: compile-expr-in))))))
   (function 'emit 'LOADCONST (function 'intern-const *unspec*)))
 
 (define (compile-lambda-in name lambda-expr function)
@@ -226,7 +226,7 @@
   (let ([*raw-code* '()]
         [*consts* '()]
         [*names* '()] ;; (name, name-index)
-        [*upvals* '()] ;; (name, upval-rel-index)
+        [*upvals* '()] ;; (name, copy-from-outer-index, upval-index)
         [*promoted-upvals* '()] ;; local-index* for outer function
 
         ;; (name, local-index), and initialize the arguments
@@ -251,10 +251,13 @@
          (let ([outer-type (*outer* 'type-of-var name)])
            (cond
              ([eq? outer-type 'local]
+              ;; fresh upval, outer should promote it
               (add-to-upval-descr name (*outer* 'promote-to-upval name))
                'upval)
              ([eq? outer-type 'upval]
-              (add-to-upval-descr name (*outer* 'get-upval name)))
+              ;; already upval, just copy
+              (add-to-upval-descr name (*outer* 'get-upval name))
+               'upval)
              (else
               (assert (eq? outer-type 'global) 'wtf)
               outer-type))))
@@ -262,26 +265,33 @@
          'global))) ;; or if I am the toplevel
 
     (define (add-to-upval-descr name outer-index)
-      (set! *upvals* (cons `(,name ,outer-index) *upvals*)))
+      (let ([next-local-index (+ (length *locals*) (length *upvals*))])
+        (set! *upvals* (cons `(,name ,outer-index ,next-local-index)
+                             *upvals*))
+        next-local-index))
 
     (define (promote-to-upval name)
       (let ([local-index (cadr (assoc name *locals*))])
-        (set! *promoted-upvals* (cons local-index *promoted-upvals*))
+        (if (not (list-index *promoted-upvals* local-index))
+            ;; to avoid duplicate upval
+            (set! *promoted-upvals* (cons local-index *promoted-upvals*)))
         (patch-local-access local-index)
         local-index))
 
+    (define (get-upval name)
+      (caddr (assoc name *upvals*)))
+
     (define (patch-local-access local-index)
-      (define (patch code)
-        (if (null? code) #f
-            (let ([thiscode (car code)]
-                  [rest (cdr code)])
-              (cond
-                ([eq? (car thiscode) 'LOAD]
-                 (set-car! code `(LOADUPVAL ,(cadr thiscode))))
-                ([eq? (car thiscode) 'STORE]
-                 (set-car! code `(STOREUPVAL ,(cadr thiscode)))))
-              (patch rest))))
-      (patch *raw-code*))
+      (for-each (lambda (code)
+                  (let ([opname (car code)])
+                    (cond
+                      ([and (eq? opname 'LOAD)
+                            (= (cadr code) local-index)]
+                       (set-car! code 'LOADUPVAL))
+                      ([and (eq? opname 'STORE)
+                            (= (cadr code) local-index)]
+                       (set-car! code 'STOREUPVAL)))))
+                *raw-code*))
 
     (define (insert-upval-builder)
       (set! *raw-code* (append *raw-code*
@@ -291,9 +301,6 @@
 
     (define (get-local name)
       (cadr (assoc name *locals*)))
-
-    (define (get-upval name)
-      (cadr (assoc name *upvals*)))
 
     (define (get-name name)
       (let ([maybe-name (assoc name *names*)])
@@ -305,9 +312,9 @@
     (define (define-var name)
       (if (assoc name *locals*)
           (get-local name) ;; duplicate define
-          (let ([local-index (length *locals*)])
-            (set! *locals* (cons `(,name ,local-index) *locals*))
-            local-index)))
+          (let ([next-local-index (+ (length *upvals*) (length *locals*))])
+            (set! *locals* (cons `(,name ,next-local-index) *locals*))
+            next-local-index)))
 
     (define (intern-const value)
       (let ([maybe-interned (assoc value *consts*)])
@@ -357,7 +364,7 @@
          (NB-ARGS ,(+ (length *pos-args*) (if *has-vararg?* 1 0))
                   ,*has-vararg?*)
          (NB-LOCALS ,(+ (length *locals*) (length *upvals*)))
-         (UPVAL-DESCRS ,(reverse (map cadr *upvals*)))
+         (UPVAL-DESCRS ,(reverse (map cdr *upvals*)))
          (CONSTS ,(reverse (map car *consts*)))
          (NAMES ,(reverse (map car *names*)))
          (FUNCTIONS ,(reverse (map (lambda (func)
@@ -399,14 +406,12 @@
 
     self))
 
-(define (read-program)
-  (let ([got (read)])
-    (if (eof-object? got) '()
-        (cons got (read-program)))))
+(load "source-preprocessor.ss")
 
 (define (main)
-  (let ([program (read-program)])
-    (pretty-print (compile-program program))))
+  (let ([program (expand-builtin-macro (read-program))])
+    ;(map pretty-print program)))
+    (write (compile-program program))))
 
 (main)
 

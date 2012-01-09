@@ -103,7 +103,7 @@ class W_Integer(W_Root):
         return self.ival
 
     def equal_w(self, w_x):
-        if isinstance(w_x, W_Int):
+        if isinstance(w_x, W_Integer):
             if self.ival == w_x.ival:
                 return w_true
         return w_false
@@ -159,6 +159,11 @@ class W_String(W_Root):
 
     def content(self):
         return ''.join(self.chars)
+
+    def equal_w(self, w_x):
+        if isinstance(w_x, W_String):
+            return w_boolean(w_x.content() == self.content())
+        return w_false
 
 
 class W_File(W_Root):
