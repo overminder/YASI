@@ -18,8 +18,7 @@ def run_compiled_code(filename):
     w_expr, = read_string(content)
     w_func = load_bytecode_function(w_expr, w_global)
     #
-    w_retval = execute_function(w_func, [])
-    print w_retval.to_string()
+    execute_function(w_func, [])
 
 def main(argv):
     try:

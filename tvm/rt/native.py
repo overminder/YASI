@@ -11,3 +11,13 @@ class W_NativeClosure(W_Root):
     def to_string(self):
         return '#<native-closure %s>' % self.__class__._symbol_
 
+class W_NativeClosureX(W_Root):
+    _symbol_ = '?'
+
+    @unroll_safe
+    def call_with_frame(self, args_w, frame):
+        raise NotImplementedError
+
+    def to_string(self):
+        return '#<native-closure %s>' % self.__class__._symbol_
+
