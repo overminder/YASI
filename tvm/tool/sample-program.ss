@@ -10,12 +10,13 @@
 ;(define content (read file))
 ;(close-input-port file)
 
-(define (fibo n)
-  (if (< n 2) n
-      ;(+ (fibo (- n 1))
+(define (fibo . nbox)
+  (define n (car nbox))
+  (if (< n 2)
+      n
       (+ (apply fibo (cons (- n 1) '()))
          (fibo (- n 2)))))
 
-(display (fibo 30))
+(display (fibo 40))
 (newline)
 

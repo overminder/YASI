@@ -17,12 +17,18 @@ class W_Root(object):
     def to_bool(self):
         return True
 
-    def to_list(self):
-        items_w = []
-        while isinstance(self, W_Pair):
-            items_w.append(self.w_car)
-            self = self.w_cdr
-        return items_w, self
+    def make_to_list():
+        def to_list(self):
+            items_w = []
+            while isinstance(self, W_Pair):
+                items_w.append(self.w_car)
+                self = self.w_cdr
+            return items_w, self
+        return to_list
+
+    to_list = make_to_list()
+    to_list_unrolled = unroll_safe(make_to_list()) # used by primitive-apply
+    del make_to_list
 
     def is_null(self):
         return self is w_nil

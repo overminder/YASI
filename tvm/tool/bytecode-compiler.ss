@@ -319,12 +319,8 @@
 
     (define (emit . args)
       ;; Simple optimization targeting define/set!: neutualize LOAD/POP
-      (if (and (eq? (car args) 'POP)
-               (eq? (car (last-code-ref)) 'LOADCONST))
-          (remove-last-code)
-          (begin 
-            (set! *current-pc* (+ *current-pc* (codesize args)))
-            (set! *raw-code* (cons args *raw-code*)))))
+      (set! *current-pc* (+ *current-pc* (codesize args)))
+      (set! *raw-code* (cons args *raw-code*)))
 
     (define (last-code-ref)
       (car *raw-code*))

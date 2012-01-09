@@ -21,7 +21,7 @@ class W_Apply(W_NativeClosureX):
     def call_with_frame(self, args_w, frame, tailp):
         assert len(args_w) == 2
         w_proc, w_args = args_w
-        procargs_w, w_rest = w_args.to_list()
+        procargs_w, w_rest = w_args.to_list_unrolled() # performance hack
         assert w_rest.is_null()
         #
         frame.call_closure(w_proc, procargs_w, tailp)

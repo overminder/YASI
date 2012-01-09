@@ -71,6 +71,13 @@ class __extend__(Frame):
                           fresh_virtualizable=True)
         self.stack_w = [None] * config.default.vm_stacksize
 
+    def __repr__(self):
+        from pprint import pprint
+        from cStringIO import StringIO
+        buf = StringIO()
+        pprint(self.__dict__, buf)
+        return buf.getvalue()
+
     def enter(self, w_func):
         self.stackbase = w_func.nb_locals
         self.stacktop = self.stackbase
