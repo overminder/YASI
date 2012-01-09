@@ -44,13 +44,14 @@ class W_BytecodeFunction(W_Root):
     _immutable_ = True
     _immutable_fields_ = ['consts_w[*]', 'names_w[*]', 'functions_w[*]']
 
-    def __init__(self, code, nb_args, nb_locals, upval_descrs,
+    def __init__(self, code, nb_args, has_vararg, nb_locals, upval_descrs,
                  consts_w, names_w, functions_w, module_w, name='#f'):
         self.code = code
         self.name = name
         #
         check_nonneg(nb_args)
-        self.nb_args = nb_args
+        self.nb_args = nb_args # including the vararg.
+        self.has_vararg = has_vararg 
         check_nonneg(nb_locals)
         self.nb_locals = nb_locals # args + locals + upvals
         #

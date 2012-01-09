@@ -1,3 +1,4 @@
+from pypy.rlib.jit import unroll_safe
 from pypy.tool.pairtype import extendabletype
 from tvm.error import OperationError
 
@@ -211,11 +212,16 @@ class W_Eof(W_Root):
 w_eof = W_Eof()
 
 
-def list_to_pair(list_w, w_last=w_nil):
-    for i in xrange(len(list_w) - 1, -1, -1):
-        w_item = list_w[i]
-        w_last = W_Pair(w_item, w_last)
-    return w_last
+def make_list_to_pair():
+    def list_to_pair(list_w, w_last=w_nil):
+        for i in xrange(len(list_w) - 1, -1, -1):
+            w_item = list_w[i]
+            w_last = W_Pair(w_item, w_last)
+        return w_last
+    return list_to_pair
+
+list_to_pair = make_list_to_pair()
+list_to_pair_unroll = unroll_safe(make_list_to_pair()) # performance hack
 
 
 ################################################################################

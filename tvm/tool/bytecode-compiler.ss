@@ -22,6 +22,15 @@
   (let ([map-result (map proc args)])
     (flatten map-result)))
 
+;; (a b . c) -> ((a b) . c) | (a b) -> ((a b) . ())
+(define (split-dotted-pair lst)
+  (if (pair? lst)
+      (let ([hd (car lst)]
+            [rest (split-dotted-pair (cdr lst))])
+        (cons (cons hd (car rest))
+              (cdr rest)))
+      (cons '() lst)))
+
 (define *bytecode-descr*
   (let ([descr-file (open-input-file "bytecode-descr.ss")])
     (let ([content (read descr-file)])
@@ -57,7 +66,7 @@
 ;; entry point
 (define (compile-program program)
   (define main-function (make-function 'main ;; function-name
-                                       '() ;; formal-args
+                                       '(() . ()) ;; formal-args
                                        #f)) ;; outer
   (compile-function program main-function)
   (main-function 'format-output))
@@ -97,7 +106,7 @@
       ([eq? tag 'set!]
        (compile-set!-in args function))
       ([eq? tag 'lambda]
-       (compile-lambda-in args function))
+       (compile-lambda-in #f args function))
       ([eq? tag 'begin]
        (if (null? args)
            (compile-const-in *unspec* function)
@@ -130,34 +139,27 @@
   (let ([index (function 'intern-const const)])
     (function 'emit 'LOADCONST index)))
 
-(define (compile-define-in args function)
-  (let ([first (car args)]
-        [rest (cdr args)])
+(define (compile-define-in define-expr function)
+  (let ([first (car define-expr)]
+        [rest (cdr define-expr)]
+        [var-name #f])
     (cond
-      ([symbol? first] ;; defining an variable. Note that it may be global.
+      ([symbol? first] ;; defining an variable -- eval the form
        (compile-expr-in (car rest) function #f)
-       (if (function 'is-toplevel?)
-         (let ([name-index (function 'get-name first)])
-           (function 'emit 'STOREGLOBAL name-index))
-         (let ([local-index (function 'define-var first)])
-           (function 'emit 'STORE local-index))))
-      ([pair? first] ;; defining an lambda
+       (set! var-name first))
+      ([pair? first] ;; defining an lambda -- build the lambda
        (let ([name (car first)]
              [formal-args (cdr first)])
-         (assert (and (list? formal-args)
-                      (all (map symbol? formal-args)))
-                 'wrong-formal-args)
-         (let ([func-index (function 'add-deferred-lambda
-                                     name formal-args rest)])
-           (function 'emit 'BUILDCLOSURE func-index)
-           ;; XXX: duplicate code, same as above
-           (if (function 'is-toplevel?)
-             (let ([name-index (function 'get-name name)])
-               (function 'emit 'STOREGLOBAL name-index))
-             (let ([local-index (function 'define-var name)])
-               (function 'emit 'STORE local-index))))))
+         (compile-lambda-in name (cons formal-args rest) function)
+         (set! var-name name)))
       (else
-       (error 'syntax-error))))
+       (error 'syntax-error)))
+    ;; store the value
+    (if (function 'is-toplevel?)
+      (let ([name-index (function 'get-name var-name)])
+        (function 'emit 'STOREGLOBAL name-index))
+      (let ([local-index (function 'define-var var-name)])
+        (function 'emit 'STORE local-index))))
   (function 'emit 'LOADCONST (function 'intern-const *unspec*)))
 
 (define (compile-set!-in set-expr function)
@@ -176,14 +178,14 @@
          (error 'not-reached)))))
   (function 'emit 'LOADCONST (function 'intern-const *unspec*)))
 
-(define (compile-lambda-in lambda-expr function)
-  (let ([formal-args (car lambda-expr)]
+(define (compile-lambda-in name lambda-expr function)
+  (let ([arg-descr (split-dotted-pair (car lambda-expr))]
         [body (cdr lambda-expr)])
-    (function 'emit 'BUILDCLOSURE
-              (function 'add-deferred-lambda
-                        #f ;; name
-                        formal-args
-                        body))))
+    (let ([func-index (function 'add-deferred-lambda
+                                name
+                                arg-descr
+                                body)])
+      (function 'emit 'BUILDCLOSURE func-index))))
 
 (define (compile-if-in if-expr function tailp)
   (let ([pred (car if-expr)]
@@ -218,181 +220,188 @@
 ;; Context and Function
 
 (define (make-function *name* *formal-args* *outer*)
-  (define *raw-code* '())
-  (define *consts* '())
-  (define *names* '()) ;; (name, name-index)
-  (define *upvals* '()) ;; (name, upval-rel-index)
-  (define *promoted-upvals* '()) ;; local-index* for outer function
+  (define *pos-args* (car *formal-args*))
+  (define *vararg* (cdr *formal-args*))
+  (define *has-vararg?* (not (null? *vararg*)))
+  (let ([*raw-code* '()]
+        [*consts* '()]
+        [*names* '()] ;; (name, name-index)
+        [*upvals* '()] ;; (name, upval-rel-index)
+        [*promoted-upvals* '()] ;; local-index* for outer function
 
-  ;; (name, local-index), and initialize the arguments
-  (define *locals* (let ([i -1])
-                     (map (lambda (name)
-                            (set! i (+ i 1))
-                            `(,name ,i))
-                          *formal-args*)))
-  (define *current-pc* 0)
-  (define *deferred-lambda* '())
-  (define *functions* #f)
+        ;; (name, local-index), and initialize the arguments
+        [*locals* (let ([i -1])
+                    (map (lambda (name)
+                           (set! i (+ i 1))
+                           `(,name ,i))
+                         (if *has-vararg?*
+                             (append *pos-args* `(,*vararg*))
+                             *pos-args*)))]
+        [*current-pc* 0]
+        [*deferred-lambda* '()]
+        [*functions* #f])
 
-  (define (type-of-var name)
-    (cond
-      ([assoc name *locals*]
-       'local)
-      ([assoc name *upvals*]
-       'upval)
-      (*outer*
-       (let ([outer-type (*outer* 'type-of-var name)])
-         (cond
-           ([eq? outer-type 'local]
-            (add-to-upval-descr name (*outer* 'promote-to-upval name))
-             'upval)
-           ([eq? outer-type 'upval]
-            (add-to-upval-descr name (*outer* 'get-upval name)))
-           (else
-            (assert (eq? outer-type 'global) 'wtf)
-            outer-type))))
-      (else
-       'global))) ;; or if I am the toplevel
-
-  (define (add-to-upval-descr name outer-index)
-    (set! *upvals* (cons `(,name ,outer-index) *upvals*)))
-
-  (define (promote-to-upval name)
-    (let ([local-index (cadr (assoc name *locals*))])
-      (set! *promoted-upvals* (cons local-index *promoted-upvals*))
-      (patch-local-access local-index)
-      local-index))
-
-  (define (patch-local-access local-index)
-    (define (patch code)
-      (if (null? code) #f
-          (let ([thiscode (car code)]
-                [rest (cdr code)])
-            (cond
-              ([eq? (car thiscode) 'LOAD]
-               (set-car! code `(LOADUPVAL ,(cadr thiscode))))
-              ([eq? (car thiscode) 'STORE]
-               (set-car! code `(STOREUPVAL ,(cadr thiscode)))))
-            (patch rest))))
-    (patch *raw-code*))
-
-  (define (insert-upval-builder)
-    (set! *raw-code* (append *raw-code*
-                             (map (lambda (index)
-                                    `(BUILDUPVAL ,index))
-                                  *promoted-upvals*))))
-
-  (define (get-local name)
-    (cadr (assoc name *locals*)))
-
-  (define (get-upval name)
-    (cadr (assoc name *upvals*)))
-
-  (define (get-name name)
-    (let ([maybe-name (assoc name *names*)])
-      (if maybe-name (cadr maybe-name)
-          (let ([new-index (length *names*)])
-            (set! *names* (cons `(,name ,new-index) *names*))
-            new-index))))
-
-  (define (define-var name)
-    (if (assoc name *locals*)
-        (get-local name) ;; duplicate define
-        (let ([local-index (length *locals*)])
-          (set! *locals* (cons `(,name ,local-index) *locals*))
-          local-index)))
-
-  (define (intern-const value)
-    (let ([maybe-interned (assoc value *consts*)])
-      (if maybe-interned
-          (cadr maybe-interned)
-          (let ([next-const (length *consts*)])
-            (set! *consts* (cons `(,value ,next-const) *consts*))
-            next-const))))
-
-  (define (emit . args)
-    ;; Simple optimization targeting define/set!: neutualize LOAD/POP
-    (if (and (eq? (car args) 'POP)
-             (eq? (car (last-code-ref)) 'LOADCONST))
-        (remove-last-code)
-        (begin 
-          (set! *current-pc* (+ *current-pc* (codesize args)))
-          (set! *raw-code* (cons args *raw-code*)))))
-
-  (define (last-code-ref)
-    (car *raw-code*))
-
-  (define (remove-last-code)
-    (set! *raw-code* (cdr *raw-code*)))
-
-  (define (add-deferred-lambda name formal-args body)
-    (let ([func-index (length *deferred-lambda*)]
-          [deferred-lambda `(,name ,formal-args ,body)])
-      (set! *deferred-lambda* (cons (cons func-index deferred-lambda)
-                                    *deferred-lambda*))
-      func-index))
-
-  (define (resolve-deferred-lambda)
-    (set! *functions*
-      (map (lambda (lam-form)
-             (let ([func-index (car lam-form)]
-                   [name (cadr lam-form)]
-                   [formal-args (caddr lam-form)]
-                   [body (cadddr lam-form)])
-               (let ([function (make-function name
-                                              formal-args
-                                              self)])
-                 (compile-function body function)
-                 function)))
-           *deferred-lambda*)))
-
-  (define (format-output)
-    (insert-upval-builder)
-    `(BYTECODE-FUNCTION
-       (NAME ,*name*)
-       (CODE ,(concat-map assemble (reverse *raw-code*)))
-       (NB-ARGS ,(length *formal-args*))
-       (NB-LOCALS ,(+ (length *locals*) (length *upvals*)))
-       (UPVAL-DESCRS ,(reverse (map cadr *upvals*)))
-       (CONSTS ,(reverse (map car *consts*)))
-       (NAMES ,(reverse (map car *names*)))
-       (FUNCTIONS ,(reverse (map (lambda (func)
-                                   (func 'format-output))
-                                 *functions*)))))
-
-  (define methods
-    `((type-of-var ,type-of-var)
-      (emit ,emit)
-      (intern-const ,intern-const)
-      (get-local ,get-local)
-      (get-name ,get-name)
-      (get-upval ,get-upval)
-      (promote-to-upval ,promote-to-upval)
-      (define-var ,define-var)
-      (last-code-ref ,last-code-ref)
-      (remove-last-code ,remove-last-code)
-      (add-deferred-lambda ,add-deferred-lambda)
-      (resolve-deferred-lambda ,resolve-deferred-lambda)
-      (format-output ,format-output)
-      ))
-
-  ;; self
-  (define self
-    (lambda (attr . args)
+    (define (type-of-var name)
       (cond
-        ([eq? attr 'name]
-          *name*)
-        ([eq? attr 'outer]
-          *outer*)
-        ([eq? attr 'current-pc]
-          *current-pc*)
-        ([eq? attr 'is-toplevel?]
-         (not *outer*))
-        ([assoc attr methods]
-         (apply (cadr (assoc attr methods)) args))
+        ([assoc name *locals*]
+         'local)
+        ([assoc name *upvals*]
+         'upval)
+        (*outer*
+         (let ([outer-type (*outer* 'type-of-var name)])
+           (cond
+             ([eq? outer-type 'local]
+              (add-to-upval-descr name (*outer* 'promote-to-upval name))
+               'upval)
+             ([eq? outer-type 'upval]
+              (add-to-upval-descr name (*outer* 'get-upval name)))
+             (else
+              (assert (eq? outer-type 'global) 'wtf)
+              outer-type))))
         (else
-         (error `(attribute-error: ,attr ,args))))))
-  self)
+         'global))) ;; or if I am the toplevel
+
+    (define (add-to-upval-descr name outer-index)
+      (set! *upvals* (cons `(,name ,outer-index) *upvals*)))
+
+    (define (promote-to-upval name)
+      (let ([local-index (cadr (assoc name *locals*))])
+        (set! *promoted-upvals* (cons local-index *promoted-upvals*))
+        (patch-local-access local-index)
+        local-index))
+
+    (define (patch-local-access local-index)
+      (define (patch code)
+        (if (null? code) #f
+            (let ([thiscode (car code)]
+                  [rest (cdr code)])
+              (cond
+                ([eq? (car thiscode) 'LOAD]
+                 (set-car! code `(LOADUPVAL ,(cadr thiscode))))
+                ([eq? (car thiscode) 'STORE]
+                 (set-car! code `(STOREUPVAL ,(cadr thiscode)))))
+              (patch rest))))
+      (patch *raw-code*))
+
+    (define (insert-upval-builder)
+      (set! *raw-code* (append *raw-code*
+                               (map (lambda (index)
+                                      `(BUILDUPVAL ,index))
+                                    *promoted-upvals*))))
+
+    (define (get-local name)
+      (cadr (assoc name *locals*)))
+
+    (define (get-upval name)
+      (cadr (assoc name *upvals*)))
+
+    (define (get-name name)
+      (let ([maybe-name (assoc name *names*)])
+        (if maybe-name (cadr maybe-name)
+            (let ([new-index (length *names*)])
+              (set! *names* (cons `(,name ,new-index) *names*))
+              new-index))))
+
+    (define (define-var name)
+      (if (assoc name *locals*)
+          (get-local name) ;; duplicate define
+          (let ([local-index (length *locals*)])
+            (set! *locals* (cons `(,name ,local-index) *locals*))
+            local-index)))
+
+    (define (intern-const value)
+      (let ([maybe-interned (assoc value *consts*)])
+        (if maybe-interned
+            (cadr maybe-interned)
+            (let ([next-const (length *consts*)])
+              (set! *consts* (cons `(,value ,next-const) *consts*))
+              next-const))))
+
+    (define (emit . args)
+      ;; Simple optimization targeting define/set!: neutualize LOAD/POP
+      (if (and (eq? (car args) 'POP)
+               (eq? (car (last-code-ref)) 'LOADCONST))
+          (remove-last-code)
+          (begin 
+            (set! *current-pc* (+ *current-pc* (codesize args)))
+            (set! *raw-code* (cons args *raw-code*)))))
+
+    (define (last-code-ref)
+      (car *raw-code*))
+
+    (define (remove-last-code)
+      (set! *raw-code* (cdr *raw-code*)))
+
+    (define (add-deferred-lambda name formal-args body)
+      (let ([func-index (length *deferred-lambda*)]
+            [deferred-lambda `(,name ,formal-args ,body)])
+        (set! *deferred-lambda* (cons (cons func-index deferred-lambda)
+                                      *deferred-lambda*))
+        func-index))
+
+    (define (resolve-deferred-lambda)
+      (set! *functions*
+        (map (lambda (lam-form)
+               (let ([func-index (car lam-form)]
+                     [name (cadr lam-form)]
+                     [formal-args (caddr lam-form)]
+                     [body (cadddr lam-form)])
+                 (let ([function (make-function name
+                                                formal-args
+                                                self)])
+                   (compile-function body function)
+                   function)))
+             *deferred-lambda*)))
+
+    (define (format-output)
+      (insert-upval-builder)
+      `(BYTECODE-FUNCTION
+         (NAME ,*name*)
+         (CODE ,(concat-map assemble (reverse *raw-code*)))
+         (NB-ARGS ,(+ (length *pos-args*) (if *has-vararg?* 1 0))
+                  ,*has-vararg?*)
+         (NB-LOCALS ,(+ (length *locals*) (length *upvals*)))
+         (UPVAL-DESCRS ,(reverse (map cadr *upvals*)))
+         (CONSTS ,(reverse (map car *consts*)))
+         (NAMES ,(reverse (map car *names*)))
+         (FUNCTIONS ,(reverse (map (lambda (func)
+                                     (func 'format-output))
+                                   *functions*)))))
+
+    (define methods
+      `((type-of-var ,type-of-var)
+        (emit ,emit)
+        (intern-const ,intern-const)
+        (get-local ,get-local)
+        (get-name ,get-name)
+        (get-upval ,get-upval)
+        (promote-to-upval ,promote-to-upval)
+        (define-var ,define-var)
+        (last-code-ref ,last-code-ref)
+        (remove-last-code ,remove-last-code)
+        (add-deferred-lambda ,add-deferred-lambda)
+        (resolve-deferred-lambda ,resolve-deferred-lambda)
+        (format-output ,format-output)
+        ))
+
+    ;; self
+    (define self
+      (lambda (attr . args)
+        (cond
+          ([eq? attr 'name]
+            *name*)
+          ([eq? attr 'outer]
+            *outer*)
+          ([eq? attr 'current-pc]
+            *current-pc*)
+          ([eq? attr 'is-toplevel?]
+           (not *outer*))
+          ([assoc attr methods]
+           (apply (cadr (assoc attr methods)) args))
+          (else
+           (error `(attribute-error: ,attr ,args))))))
+
+    self))
 
 (define (read-program)
   (let ([got (read)])

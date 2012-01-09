@@ -1,5 +1,7 @@
 from pypy.rlib.jit import hint, unroll_safe
-from tvm.rt.native import W_NativeClosure
+from tvm.asm.assembler import load_bytecode_function, dump_bytecode_function
+from tvm.rt.code import W_BytecodeClosure, W_BytecodeFunction
+from tvm.rt.native import W_NativeClosure, W_NativeClosureX
 from tvm.lang.reader import read_string
 from tvm.lang.model import (W_Pair, W_Root, w_boolean, W_Integer,
                             W_Boolean, W_Symbol, symbol,
@@ -11,6 +13,18 @@ prelude_registry = []
 def populate_module(module_w):
     for w_key, w_val in prelude_registry:
         module_w.setitem(w_key, w_val)
+
+class W_Apply(W_NativeClosureX):
+    _symbol_ = 'apply'
+
+    @unroll_safe
+    def call_with_frame(self, args_w, frame, tailp):
+        assert len(args_w) == 2
+        w_proc, w_args = args_w
+        procargs_w, w_rest = w_args.to_list()
+        assert w_rest.is_null()
+        #
+        frame.call_closure(w_proc, procargs_w, tailp)
 
 class W_NumEq(W_NativeClosure):
     _symbol_ = '='
@@ -299,23 +313,23 @@ class W_BuildForeignFunction(W_NativeClosure):
         return w_cdll.getpointer(w_symbol_name.content(),
                                  argtypes_w, w_restype)
 
-class W_LoadBytecodeFunction(W_NativeClosure):
+class W_LoadBytecodeFunction(W_NativeClosureX):
     _symbol_ = 'load-bytecode-function'
 
-    def call(self, args_w):
-        from tvm.asm.assembler import load_bytecode_function
+    def call_with_frame(self, args_w, frame, tailp):
         assert len(args_w) == 1
         w_arg, = args_w
-        w_func = load_bytecode_function(w_arg, None) # XXX
-        return w_func.build_closure([])
+        w_func = load_bytecode_function(w_arg, frame.w_func.module_w) # XXX
+        w_closure = w_func.build_closure([])
+        if tailp:
+            frame.leave_with_retval(w_closure)
+        else:
+            frame.push(w_closure)
 
 class W_DumpBytecodeFunction(W_NativeClosure):
     _symbol_ = 'dump-bytecode-function'
 
     def call(self, args_w):
-        from tvm.asm.assembler import dump_bytecode_function
-        from tvm.rt.code import W_BytecodeClosure
-        #
         assert len(args_w) == 1
         w_arg, = args_w
         assert isinstance(w_arg, W_BytecodeClosure)
@@ -331,7 +345,8 @@ name2type = {
 }
 
 for val in globals().values():
-    if (isinstance(val, type) and issubclass(val, W_NativeClosure) and
+    if (isinstance(val, type) and issubclass(val, (W_NativeClosure,
+                                                   W_NativeClosureX)) and
             hasattr(val, '_symbol_')):
         prelude_registry.append((symbol(val._symbol_), val()))
 del val

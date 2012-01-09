@@ -1,5 +1,5 @@
 from pypy.rlib.jit import unroll_safe, dont_look_inside
-from tvm.lang.model import symbol, list_to_pair, W_Integer
+from tvm.lang.model import symbol, list_to_pair, W_Integer, w_boolean
 from tvm.rt.code import W_BytecodeFunction
 
 @dont_look_inside
@@ -18,10 +18,11 @@ def load_bytecode_function(w_expr, w_module):
     codelist_w, _ = w_code.to_list()
     code = ''.join([chr(c.to_int()) for c in codelist_w])
     #
-    (w_tag, w_nb_args), _ = fields_w[3].to_list()
+    (w_tag, w_nb_args, w_has_vararg), _ = fields_w[3].to_list()
     assert w_tag.to_string() == 'NB-ARGS'
     nb_args = w_nb_args.to_int()
     assert nb_args >= 0
+    has_vararg = w_has_vararg.to_bool()
     #
     (w_tag, w_nb_locals), _ = fields_w[4].to_list()
     assert w_tag.to_string() == 'NB-LOCALS'
@@ -46,9 +47,9 @@ def load_bytecode_function(w_expr, w_module):
     func_literals_w, _ = w_functions.to_list()
     functions_w = [load_bytecode_function(w_literal, w_module)
                    for w_literal in func_literals_w]
-    return W_BytecodeFunction(code, nb_args, nb_locals, upval_descrs,
-                              consts_w[:], names_w[:], functions_w[:],
-                              w_module, funcname)
+    return W_BytecodeFunction(code, nb_args, has_vararg, nb_locals,
+                              upval_descrs, consts_w[:], names_w[:],
+                              functions_w[:], w_module, funcname)
 
 @dont_look_inside
 def dump_bytecode_function(w_func):
@@ -58,7 +59,8 @@ def dump_bytecode_function(w_func):
     fields_w[1] = list_to_pair([symbol('NAME'), symbol(w_func.name)])
     w_code = list_to_pair([W_Integer(ord(c)) for c in w_func.code])
     fields_w[2] = list_to_pair([symbol('CODE'), w_code])
-    fields_w[3] = list_to_pair([symbol('NB-ARGS'), W_Integer(w_func.nb_args)])
+    fields_w[3] = list_to_pair([symbol('NB-ARGS'), W_Integer(w_func.nb_args),
+                                w_boolean(w_func.has_vararg)])
     fields_w[4] = list_to_pair([symbol('NB-LOCALS'),
                                 W_Integer(w_func.nb_locals)])
     w_upval_descrs = list_to_pair([W_Integer(ord(c))

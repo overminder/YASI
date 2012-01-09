@@ -2,8 +2,8 @@ from pypy.rlib.jit import hint, unroll_safe
 from tvm import config
 from tvm.rt.baseframe import Frame, W_ExecutionError
 from tvm.rt.code import codemap, W_BytecodeClosure, W_BytecodeFunction, W_UpVal
-from tvm.rt.native import W_NativeClosure
-from tvm.lang.model import W_Root, W_Error
+from tvm.rt.native import W_NativeClosure, W_NativeClosureX
+from tvm.lang.model import W_Root, W_Error, list_to_pair_unroll
 
 class ReturnFromTopLevel(Exception):
     _immutable_ = True
@@ -112,6 +112,62 @@ class __extend__(Frame):
         else:
             raise ReturnFromTopLevel(w_retval)
 
+    @unroll_safe
+    def call_closure(self, w_closure, args_w, tailp):
+        nb_args_supplied = len(args_w)
+        if not tailp:
+            if isinstance(w_closure, W_BytecodeClosure):
+                w_func = w_closure.w_func
+                nb_args = w_func.nb_args
+                if not w_func.has_vararg:
+                    # fast path.
+                    if nb_args_supplied != nb_args:
+                        raise W_ExecutionError('argcount').wrap()
+                    self.dump = Dump(self) # save current state
+                    self.enter_with_args(w_func, args_w, w_closure.upvals_w)
+                else:
+                    if nb_args_supplied < nb_args - 1:
+                        raise W_ExecutionError('argcount').wrap()
+                    self.dump = Dump(self)
+                    slice_start = nb_args - 1
+                    assert slice_start >= 0
+                    w_vararg = list_to_pair_unroll(args_w[slice_start:])
+                    truncated_args_w = args_w[:nb_args]
+                    truncated_args_w[nb_args - 1] = w_vararg
+                    self.enter_with_args(w_func, truncated_args_w,
+                                         w_closure.upvals_w)
+            elif isinstance(w_closure, W_NativeClosure):
+                w_retval = w_closure.call(args_w)
+                self.push(w_retval)
+            else:
+                assert isinstance(w_closure, W_NativeClosureX)
+                w_closure.call_with_frame(args_w, self, tailp=False)
+        else:
+            if isinstance(w_closure, W_BytecodeClosure):
+                w_func = w_closure.w_func
+                nb_args = w_func.nb_args
+                if not w_func.has_vararg:
+                    # fast path.
+                    if nb_args_supplied != nb_args:
+                        raise W_ExecutionError('argcount').wrap()
+                    self.enter_with_args(w_func, args_w, w_closure.upvals_w)
+                else:
+                    if nb_args_supplied < nb_args - 1:
+                        raise W_ExecutionError('argcount').wrap()
+                    slice_start = nb_args - 1
+                    assert slice_start >= 0
+                    w_vararg = list_to_pair_unroll(args_w[slice_start:])
+                    truncated_args_w = args_w[:nb_args]
+                    truncated_args_w[nb_args - 1] = w_vararg
+                    self.enter_with_args(w_func, truncated_args_w,
+                                         w_closure.upvals_w)
+            elif isinstance(w_closure, W_NativeClosure):
+                w_retval = w_closure.call(args_w)
+                self.leave_with_retval(w_retval)
+            else:
+                assert isinstance(w_closure, W_NativeClosureX)
+                w_closure.call_with_frame(args_w, self, tailp=True)
+
     def nextbyte(self, code):
         pc = self.pc
         assert pc >= 0
@@ -188,32 +244,13 @@ class __extend__(Frame):
     def CALL(self, oparg):
         w_closure = self.pop()
         args_w = self.popmany(oparg)
-        if isinstance(w_closure, W_BytecodeClosure):
-            w_func = w_closure.w_func
-            nb_args = w_func.nb_args
-            if oparg != nb_args:
-                raise W_ExecutionError('argcount').wrap()
-            self.dump = Dump(self) # save current state
-            self.enter_with_args(w_func, args_w, w_closure.upvals_w)
-        else:
-            assert isinstance(w_closure, W_NativeClosure)
-            w_retval = w_closure.call(args_w)
-            self.push(w_retval)
+        self.call_closure(w_closure, args_w, tailp=False)
 
     @unroll_safe
     def TAILCALL(self, oparg):
         w_closure = self.pop()
         args_w = self.popmany(oparg)
-        if isinstance(w_closure, W_BytecodeClosure):
-            w_func = w_closure.w_func
-            nb_args = w_func.nb_args
-            if oparg != nb_args:
-                raise W_ExecutionError('argcount').wrap()
-            self.enter_with_args(w_func, args_w, w_closure.upvals_w)
-        else:
-            assert isinstance(w_closure, W_NativeClosure)
-            w_retval = w_closure.call(args_w)
-            self.leave_with_retval(w_retval)
+        self.call_closure(w_closure, args_w, tailp=True)
 
     def RET(self, _):
         self.leave_with_retval(self.pop())
