@@ -8,9 +8,17 @@ compiled_source = '''
   (NB-ARGS 0)
   (NB-LOCALS 0)
   (UPVAL-DESCRS ())
-  (CONSTS ((LITERAL 10)
-  (LITERAL (1 2 3))))
-  (NAMES (fibo display)))
+  (CONSTS (10 20 30))
+  (NAMES (fibo display))
+  (FUNCTIONS ((BYTECODE-FUNCTION
+                (NAME some-func)
+                (CODE (1 2 3 3 4 5))
+                (NB-ARGS 2)
+                (NB-LOCALS 4)
+                (UPVAL-DESCRS (0))
+                (CONSTS (foo bar (1 2)))
+                (NAMES (+ - * /))
+                (FUNCTIONS ())))))
 '''
 
 def test_load_dump():

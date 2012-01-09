@@ -19,7 +19,7 @@ def test_add():
     w_global = ModuleDict()
     populate_module(w_global)
     w_func = W_BytecodeFunction(code, 0, 0, '', [w_one, w_two],
-                                [w_add], w_global, 'main')
+                                [w_add], [], w_global, 'main')
     w_retval = execute_function(w_func, [])
     assert w_retval.to_int() == 3
 
@@ -35,7 +35,7 @@ def test_cond():
     w_global = ModuleDict()
     populate_module(w_global)
     w_func = W_BytecodeFunction(code, 0, 0, '', [w_one, w_two],
-                                [w_lt], w_global, 'main')
+                                [w_lt], [], w_global, 'main')
     w_retval = execute_function(w_func, [])
     assert w_retval is w_true
  
@@ -50,18 +50,18 @@ def test_call():
                      Op.RET)
     w_lt = symbol('<')
     w_func = W_BytecodeFunction(code, 2, 2, '', [],
-                                [w_lt], w_global, 'lessthan')
+                                [w_lt], [], w_global, 'lessthan')
 
     maincode = make_code(Op.LOADCONST, 0,
                          Op.LOADCONST, 1,
-                         Op.BUILDCLOSURE, 2,
+                         Op.BUILDCLOSURE, 0,
                          Op.CALL, 2,
                          Op.RET)
 
     w_one = W_Integer(1)
     w_two = W_Integer(2)
-    w_main = W_BytecodeFunction(maincode, 0, 0, '', [w_one, w_two, w_func],
-                                [], w_global, 'main')
+    w_main = W_BytecodeFunction(maincode, 0, 0, '', [w_one, w_two],
+                                [], [w_func], w_global, 'main')
 
     w_retval = execute_function(w_main, [])
     assert w_retval is w_true
@@ -76,18 +76,18 @@ def test_tailcall1():
                      Op.TAILCALL, 2)
     w_lt = symbol('<')
     w_func = W_BytecodeFunction(code, 2, 2, '', [],
-                                [w_lt], w_global, 'tailcaller')
+                                [w_lt], [], w_global, 'tailcaller')
 
     maincode = make_code(Op.LOADCONST, 0,
                          Op.LOADCONST, 1,
-                         Op.BUILDCLOSURE, 2,
+                         Op.BUILDCLOSURE, 0,
                          Op.CALL, 2,
                          Op.RET)
 
     w_one = W_Integer(1)
     w_two = W_Integer(2)
-    w_main = W_BytecodeFunction(maincode, 0, 0, '', [w_one, w_two, w_func],
-                                None, w_global)
+    w_main = W_BytecodeFunction(maincode, 0, 0, '', [w_one, w_two],
+                                None, [w_func], w_global)
     w_retval = execute_function(w_main, [])
     assert w_retval is w_true
  
@@ -125,18 +125,19 @@ def test_fibo():
                      Op.CALL, 1, # push (fibo (- n 2))
                      Op.LOADGLOBAL, 3, # '+
                      Op.TAILCALL, 2)
-    w_func = W_BytecodeFunction(code, 1, 1, '', consts_w, names_w, w_global)
+    w_func = W_BytecodeFunction(code, 1, 1, '', consts_w, names_w,
+                                [], w_global)
 
     maincode = make_code(Op.BUILDCLOSURE, 0,
                          Op.STOREGLOBAL, 0,
-                         Op.LOADCONST, 1,
+                         Op.LOADCONST, 0,
                          Op.LOADGLOBAL, 0,
                          Op.CALL, 1,
                          Op.RET)
 
     w_ten = W_Integer(10)
-    w_main = W_BytecodeFunction(maincode, 0, 0, '', [w_func, w_ten],
-                                [w_fibo], w_global)
+    w_main = W_BytecodeFunction(maincode, 0, 0, '', [w_ten],
+                                [w_fibo], [w_func], w_global)
 
     w_retval = execute_function(w_main, [])
     assert w_retval.to_int() == 55
@@ -147,22 +148,25 @@ def test_immutable_upval():
     #
     inner_code = make_code(Op.LOADUPVAL, 0, # n
                            Op.RET)
-    w_inner_func = W_BytecodeFunction(inner_code, 0, 1, '\0', [], [], None)
+    w_inner_func = W_BytecodeFunction(inner_code, 0, 1, '\0', [], [],
+                                      [], None)
 
     outer_code = make_code(Op.BUILDUPVAL, 0,
                            Op.LOADCONST, 0,
                            Op.STOREUPVAL, 0,
-                           Op.BUILDCLOSURE, 1,
+                           Op.BUILDCLOSURE, 0,
                            Op.RET)
     w_one = W_Integer(1)
     w_outer_func = W_BytecodeFunction(outer_code, 0, 1, '',
-                                      [w_one, w_inner_func], [], None)
+                                      [w_one], [],
+                                      [w_inner_func], None)
 
     main_code = make_code(Op.BUILDCLOSURE, 0,
                           Op.CALL, 0, # outer() => inner
                           Op.CALL, 0, # inner() => 1
                           Op.RET)
-    w_main = W_BytecodeFunction(main_code, 0, 0, '', [w_outer_func], [], None)
+    w_main = W_BytecodeFunction(main_code, 0, 0, '', [], [],
+                                [w_outer_func], None)
     #
     w_retval = execute_function(w_main, [])
     assert w_retval.to_int() == 1
@@ -182,23 +186,25 @@ def test_mutable_upval():
                            Op.RET)
     w_inner_func = W_BytecodeFunction(inner_code, 0, 1, '\0',
                                       [w_two, w_unspec],
-                                      [symbol('+')], w_global)
+                                      [symbol('+')], [], w_global)
 
     outer_code = make_code(Op.BUILDUPVAL, 0,
                            Op.LOADCONST, 0, # 1
                            Op.STOREUPVAL, 0,
-                           Op.BUILDCLOSURE, 1, # inner
+                           Op.BUILDCLOSURE, 0, # inner
                            Op.CALL, 0, # inner(), which changes the upval to 3
                            Op.POP,
                            Op.LOADUPVAL, 0,
                            Op.RET)
     w_outer_func = W_BytecodeFunction(outer_code, 0, 1, '',
-                                      [w_one, w_inner_func], [], None)
+                                      [w_one], [],
+                                      [w_inner_func], None)
 
     main_code = make_code(Op.BUILDCLOSURE, 0,
                           Op.CALL, 0, # outer() => 3
                           Op.RET)
-    w_main = W_BytecodeFunction(main_code, 0, 0, '', [w_outer_func], [], None)
+    w_main = W_BytecodeFunction(main_code, 0, 0, '', [], [],
+                                [w_outer_func], None)
     #
     w_retval = execute_function(w_main, [])
     assert w_retval.to_int() == 3

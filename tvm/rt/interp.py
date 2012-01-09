@@ -57,6 +57,8 @@ class __extend__(Frame):
         'stack_w[*]',
     ]
 
+    _immutable_fields_ = ['stack_w']
+
     pc = 0
     stacktop = 0
     stackbase = 0
@@ -170,7 +172,7 @@ class __extend__(Frame):
 
     @unroll_safe
     def BUILDCLOSURE(self, oparg):
-        w_func = self.w_func.consts_w[oparg]
+        w_func = self.w_func.functions_w[oparg]
         assert isinstance(w_func, W_BytecodeFunction)
         upval_descrs = w_func.upval_descrs
         nb_upvals = len(upval_descrs)
@@ -179,7 +181,7 @@ class __extend__(Frame):
         while i < nb_upvals:
             upvals_w[i] = self.stackref(ord(upval_descrs[i]))
             i += 1
-        w_closure = W_BytecodeClosure(w_func, upvals_w)
+        w_closure = w_func.build_closure(upvals_w)
         self.push(w_closure)
 
     @unroll_safe

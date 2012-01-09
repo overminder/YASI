@@ -102,6 +102,8 @@ class W_Integer(W_Root):
         return w_false
 
 class W_Symbol(W_Root):
+    """ interned string object
+    """
     _immutable_ = True
 
     def __init__(self, sval):
@@ -131,11 +133,40 @@ gensym_counter = GensymCounter()
 def gensym(prefix='$Gensym_'):
     i = gensym_counter.i
     s = prefix + str(i)
-    while s in W_Symbol.interned_w:                                             
+    while s in intern_state.interned_w:
         i += 1
         s = prefix + str(i)
     gensym_counter.i = i + 1
     return symbol(s)
+
+
+class W_String(W_Root):
+    _immutable_ = True
+
+    def __init__(self, sval):
+        assert sval is not None
+        self.chars = [c for c in sval]
+
+    def to_string(self):
+        return '"' + self.content() + '"'
+
+    def content(self):
+        return ''.join(self.chars)
+
+
+class W_File(W_Root):
+    def __init__(self, stream):
+        self.stream = stream
+
+    def to_string(self):
+        return '#<file %s>' % self.stream
+
+    def w_readall(self):
+        return W_String(self.stream.readall())
+
+    def close(self):
+        self.stream.close()
+
 
 class W_Nil(W_Root):
     def to_string(self):

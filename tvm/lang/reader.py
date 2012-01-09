@@ -3,7 +3,7 @@ from pypy.rlib.jit import dont_look_inside
 from pypy.rlib.parsing.makepackrat import (PackratParser, Status,
                                            BacktrackException)
 from tvm.lang.model import (W_Root, W_Integer, W_Pair, w_nil, w_true, w_false,
-                            symbol, w_unspec)
+                            symbol, w_unspec, W_String)
 
 @dont_look_inside
 def read_string(source):
@@ -34,8 +34,17 @@ class SchemeParser(PackratParser):
     FALSE:
         '#f';
 
+    UNSPEC:
+        '#<unspecified>';
+
     IDENT:
         `[0-9a-zA-Z_!?@#$%&*+-/<>=\.]+`;
+
+    STRING:
+        '"'
+        s = `[^"]*`
+        '"'
+        return {s};
 
     EOF:
         !__any__;
@@ -54,15 +63,21 @@ class SchemeParser(PackratParser):
         c = FALSE
         return {w_false}
       | IGNORE*
+        c = UNSPEC
+        return {w_unspec}
+      | IGNORE*
         c = INTEGER
         return {W_Integer(int(c or 'ERR'))}
+      | IGNORE*
+        c = IDENT
+        return {symbol(c)}
+      | IGNORE*
+        c = STRING
+        return {W_String(c)}
       | IGNORE*
         `'`
         c = sexpr
         return {w_tag('quote', c)}
-      | IGNORE*
-        c = IDENT
-        return {symbol(c)}
       | IGNORE*
         '('
         c = pair

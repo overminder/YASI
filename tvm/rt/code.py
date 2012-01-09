@@ -42,10 +42,10 @@ class W_BytecodeClosure(W_Root):
 
 class W_BytecodeFunction(W_Root):
     _immutable_ = True
-    _immutable_fields_ = ['consts_w[*]', 'names_w[*]']
+    _immutable_fields_ = ['consts_w[*]', 'names_w[*]', 'functions_w[*]']
 
     def __init__(self, code, nb_args, nb_locals, upval_descrs,
-                 consts_w, names_w, module_w, name='#f'):
+                 consts_w, names_w, functions_w, module_w, name='#f'):
         self.code = code
         self.name = name
         #
@@ -56,11 +56,15 @@ class W_BytecodeFunction(W_Root):
         #
         self.upval_descrs = upval_descrs
         self.consts_w = consts_w
-        self.module_w = module_w
         self.names_w = names_w # a list of local var names
+        self.functions_w = functions_w # a list of plain functions
+        self.module_w = module_w
 
     def to_string(self):
         return '#<bytecode-function %s>' % self.name
+
+    def build_closure(self, upvals_w):
+        return W_BytecodeClosure(self, upvals_w)
 
 
 class W_UpVal(W_Root):

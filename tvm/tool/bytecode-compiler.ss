@@ -1,3 +1,7 @@
+(import (ice-9 pretty-print))
+
+(define *debug* #f)
+
 (define _ #f)
 (define *unspec* (set! _ #f)) ;; hack to make #<unspecified>
 
@@ -10,14 +14,60 @@
       (and (car lst)
            (all (cdr lst)))))
 
-(define (compile-to-bytecode program context)
-  (compile-function program context))
+(define (flatten lst)
+  (if (null? lst) lst
+      (append (car lst) (flatten (cdr lst)))))
 
-(define (compile-function program context)
-  (let ([current-function (context 'current-function)])
-    (for-each (lambda (expr)
-                (compile-expr-in expr current-function))
-              program)))
+(define (concat-map proc args)
+  (let ([map-result (map proc args)])
+    (flatten map-result)))
+
+(define *bytecode-descr*
+  (let ([descr-file (open-input-file "bytecode-descr.ss")])
+    (let ([content (read descr-file)])
+      (close-input-port descr-file)
+      content)))
+
+(define (codesize code)
+  (let ([size-descr (caddr (assoc (car code) *bytecode-descr*))])
+    (cond
+      ([eq? size-descr 'void]
+        1)
+      ([eq? size-descr 'u8]
+        2)
+      ([eq? size-descr 'u16]
+        3))))
+
+(define assemble
+  (if *debug*
+      (lambda (x) `(,x))
+      (lambda (code)
+        (let ([op (cadr (assoc (car code) *bytecode-descr*))]
+              [oparg (cdr code)]
+              [size (codesize code)])
+          (cond
+            ([= size 1]
+             `(,op))
+            ([= size 2]
+             `(,op ,(car oparg)))
+            ([= size 3]
+             `(,op ,(logand (car oparg) 255)
+                   ,(logand (ash -8 (car oparg)) 255))))))))
+
+;; entry point
+(define (compile-program program)
+  (define main-function (make-function 'main ;; function-name
+                                       '() ;; formal-args
+                                       #f)) ;; outer
+  (compile-function program main-function)
+  (main-function 'format-output))
+
+(define (compile-function body function)
+  (for-each (lambda (expr)
+              (compile-expr-in expr function))
+            body)
+  (function 'emit 'RET)
+  (function 'resolve-deferred-lambda))
 
 (define (compile-expr-in expr function)
   (cond
@@ -26,8 +76,12 @@
     ([symbol? expr]
      (compile-var-in expr function))
     ([or (integer? expr)
-         (boolean? expr)]
-     (compile-const-in expr function))))
+         (boolean? expr)
+         (string? expr)
+         (eq? expr *unspec*)]
+     (compile-const-in expr function))
+    (else
+     (error `(cannot compile expr: ,expr)))))
 
 (define (compile-pair-in pair function)
   (let ([tag (car pair)]
@@ -44,9 +98,14 @@
       ([eq? tag 'begin]
        (if (null? args)
            (compile-const-in *unspec* function)
-           (for-each (lambda (expr)
-                       (compile-expr-in expr function))
-                     args)))
+           (begin
+             (for-each (lambda (expr)
+                         (compile-expr-in expr function)
+                         (function 'emit 'POP))
+                       args)
+             (function 'remove-last-code)))) ;; remove last POP
+      ([eq? tag 'if]
+       (compile-if-in args function))
       (else
        (compile-application-in tag args function)))))
 
@@ -63,7 +122,8 @@
        (error 'not-reached)))))
 
 (define (compile-const-in const function)
-  (function 'load-const const))
+  (let ([index (function 'intern-const const)])
+    (function 'emit 'LOADCONST index)))
 
 (define (compile-define-in args function)
   (let ([first (car args)]
@@ -80,12 +140,13 @@
                       (all (map symbol? formal-args)))
                  'wrong-formal-args)
          (let ([context (function 'context)])
-           (let ([func (context 'add-deferred-lambda name formal-args rest)]
-                 [local-index (function 'define-var first)])
-             (function 'emit 'BUILDCLOSURE func)
+           (let ([func-index (context 'add-deferred-lambda
+                                      name formal-args rest)]
+                 [local-index (function 'define-var name)])
+             (function 'emit 'BUILDCLOSURE func-index)
              (function 'emit 'STORE local-index)))))
       (else
-        (error 'syntax-error)))))
+       (error 'syntax-error)))))
 
 (define (compile-set!-in set-expr function)
   (let ([name (car set-expr)]
@@ -109,6 +170,27 @@
     (function 'emit 'BUILDCLOSURE
               (context 'add-deferred-lambda #f formal-args body))))
 
+(define (compile-if-in if-expr function)
+  (let ([pred (car if-expr)]
+        [then (cadr if-expr)]
+        [otherwise (if (= (length if-expr) 3)
+                       (caddr if-expr)
+                       *unspec*)])
+    (compile-expr-in pred function)
+    (function 'emit 'JIFNOT -1)
+    (let ([insn-jifnot (function 'last-code-ref)]
+          [insn-j #f]
+          [after-then #f]
+          [after-else #f])
+      (compile-expr-in then function)
+      (function 'emit 'J -1)
+      (set! insn-j (function 'last-code-ref))
+      (set! after-then (function 'current-pc))
+      (set-car! (cdr insn-jifnot) after-then) ;; patch after-pred -> else
+      (compile-expr-in otherwise function)
+      (set! after-else (function 'current-pc))
+      (set-car! (cdr insn-j) after-else)))) ;; patch after-then -> end
+
 (define (compile-application-in proc args function)
   (for-each (lambda (expr)
               (compile-expr-in expr function))
@@ -118,48 +200,14 @@
 
 ;; Context and Function
 
-(define (make-context)
-  (define current-function (make-function 'main ;; name
-                                          '() ;; formal-args
-                                          #f ;; outer-function
-                                          self)) ;; context
-  (define main-function current-function)
-
-  (define (add-deferred-lambda name formal-args body)
-    (current-function 'add-deferred-lambda
-                      (make-function name formal-args current-function self)
-                      body))
-
-  (define (resolve-deferred-lambda)
-    (define saved-current-function current-function)
-    (for-each (lambda (form)
-                (let ([function (car form)]
-                      [body (cadr form)])
-                  (set! current-function function)
-                  (compile-function body self)))
-      (saved-current-function 'get-deferred-lambda))
-    (set! current-function saved-current-function))
-
-  ;; self
-  (define self
-    (lambda (attr . args)
-      (cond
-        ([eq? attr 'current-function]
-          current-function)
-        ([eq? attr 'main-function]
-          main-function)
-        ([eq? attr 'add-deferred-lambda]
-         (apply add-deferred-lambda args))
-        ([eq? attr 'resolve-deferred-lambda]
-         (apply resolve-deferred-lambda args)))))
-  self)
-
-(define (make-function name formal-args outer context)
+(define (make-function *name* *formal-args* *outer*)
   (define *raw-code* '())
   (define *consts* '())
   (define *names* '()) ;; (name, name-index)
   (define *locals* '()) ;; (name, local-index)
   (define *upvals* '()) ;; (name, upval-rel-index)
+  (define *current-pc* 0)
+  (define *deferred-lambda* '())
 
   (define (type-of-var name)
     (cond
@@ -167,14 +215,14 @@
        'local)
       ([assoc name *upvals*]
        'upval)
-      (outer
-       (let ([outer-type (outer 'type-of-var name)])
+      (*outer*
+       (let ([outer-type (*outer* 'type-of-var name)])
          (cond
            ([eq? outer-type 'local]
-            (add-to-upval-descr name (outer 'promote-to-upval name))
+            (add-to-upval-descr name (*outer* 'promote-to-upval name))
              'upval)
            ([eq? outer-type 'upval]
-            (add-to-upval-descr name (outer 'get-upval name)))
+            (add-to-upval-descr name (*outer* 'get-upval name)))
            (else
             (assert (eq? outer-type 'global) 'wtf)
             outer-type))))
@@ -203,30 +251,97 @@
     (patch *raw-code*))
 
   (define (get-local name)
-    (cadr (assoc *locals* name)))
+    (cadr (assoc name *locals*)))
 
   (define (get-upval name)
-    (cadr (assoc *upvals* name)))
+    (cadr (assoc name *upvals*)))
 
   (define (get-name name)
-    (let ([maybe-name (assoc *names* name)])
+    (let ([maybe-name (assoc name *names*)])
       (if maybe-name (cadr maybe-name)
           (let ([new-index (length *names*)])
             (set! *names* (cons `(,name ,new-index) *names*))
             new-index))))
 
+  (define (define-var name)
+    (if (assoc name *locals*)
+        (get-local name) ;; duplicate define
+        (let ([local-index (length *locals*)])
+          (set! *locals* (cons `(,name ,local-index) *locals*))
+          local-index)))
+
+  (define (intern-const value)
+    (let ([maybe-interned (assoc value *consts*)])
+      (if maybe-interned
+          (cadr maybe-interned)
+          (let ([next-const (length *consts*)])
+            (set! *consts* (cons `(,value ,next-const) *consts*))
+            next-const))))
+
   (define (emit . args)
+    (set! *current-pc* (+ *current-pc* (codesize args)))
     (set! *raw-code* (cons args *raw-code*)))
+
+  (define (remove-last-code)
+    (let ([last-code (car *raw-code*)])
+      (set! *current-pc* (- *current-pc* (codesize last-code)))
+      (set! *raw-code* (cdr *raw-code*))))
+
+  (define (last-code-ref)
+    (car *raw-code*))
+
+  (define (resolve-deferred-lambda)
+    #f)
+
+  (define (format-output)
+    `(BYTECODE-FUNCTION
+       (NAME ,*name*)
+       (CODE ,(concat-map assemble (reverse *raw-code*)))
+       (NB-ARGS ,(length *formal-args*))
+       (NB-LOCALS ,(+ (length *locals*) (length *upvals*)))
+       (UPVAL-DESCRS ,*upvals*)
+       (CONSTS ,(reverse (map car *consts*)))
+       (NAMES ,(reverse (map car *names*)))
+       (FUNCTIONS ())))
+
+  (define methods
+    `((type-of-var ,type-of-var)
+      (emit ,emit)
+      (intern-const ,intern-const)
+      (get-local ,get-local)
+      (get-name ,get-name)
+      (get-upval ,get-upval)
+      (define-var ,define-var)
+
+      (last-code-ref ,last-code-ref)
+      (remove-last-code ,remove-last-code)
+
+      (resolve-deferred-lambda ,resolve-deferred-lambda)
+      (format-output ,format-output)
+      ))
 
   ;; self
   (lambda (attr . args)
     (cond
       ([eq? attr 'name]
-        name)
+        *name*)
       ([eq? attr 'outer]
-        outer)
-      ([eq? attr 'context]
-        context)
+        *outer*)
+      ([eq? attr 'current-pc]
+        *current-pc*)
+      ([assoc attr methods]
+        (apply (cadr (assoc attr methods)) args))
       (else
-       (error 'attribute-error)))))
+       (error `(attribute-error: ,attr ,args))))))
+
+(define (read-program)
+  (let ([got (read)])
+    (if (eof-object? got) '()
+        (cons got (read-program)))))
+
+(define (main)
+  (let ([program (read-program)])
+    (pretty-print (compile-program program))))
+
+(main)
 

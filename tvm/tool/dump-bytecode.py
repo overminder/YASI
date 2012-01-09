@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import sys
 import path_fix
 from datetime import datetime
 from tvm.rt.code import codenames, argwidth
