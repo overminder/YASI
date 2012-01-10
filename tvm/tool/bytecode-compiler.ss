@@ -411,7 +411,8 @@
 (define (main)
   (let ([program (expand-builtin-macro (read-program))])
     ;(map pretty-print program)))
-    (write (compile-program program))))
+    ((if *debug* pretty-print write)
+     (compile-program program))))
 
 (main)
 

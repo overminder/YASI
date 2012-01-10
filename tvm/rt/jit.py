@@ -23,17 +23,19 @@ def get_location(pc, w_func):
     #
     head = '%d:%s' % (savedpc, codenames[op])
     if savedpc == 0:
-        head = ('Enter Function %s:' % w_func.name) + head
+        head = ('Enter Function %s. ' % w_func.name) + head
     #
-    if op in [Op.LOAD, Op.STORE, Op.LOADUPVAL, Op.STOREUPVAL]:
+    if op in [Op.LOAD, Op.STORE, Op.LOADUPVAL, Op.STOREUPVAL, Op.BUILDUPVAL]:
         tail = '(%d) ;; well, some local var...' % oparg
     elif op in [Op.LOADGLOBAL, Op.STOREGLOBAL]:
         tail = '(%d) ;; %s' % (oparg, w_func.names_w[oparg].to_string())
-    elif op in [Op.LOADCONST, Op.BUILDCLOSURE]:
+    elif op == Op.LOADCONST:
         tail = '(%d) ;; %s' % (oparg, w_func.consts_w[oparg].to_string())
+    elif op == Op.BUILDCLOSURE:
+        tail = '(%d) ;; %s' % (oparg, w_func.functions_w[oparg].to_string())
     elif op in [Op.CALL, Op.TAILCALL]:
         tail = '() ;; argc = %d' % oparg
-    elif op == Op.RET:
+    elif op in [Op.RET, Op.POP]:
         tail = '()'
     elif op in [Op.J, Op.JIF, Op.JIFNOT]:
         tail = '() ;; to %d' % oparg

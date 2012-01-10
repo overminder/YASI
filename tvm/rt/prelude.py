@@ -15,6 +15,11 @@ def populate_module(module_w):
     for w_key, w_val in prelude_registry:
         module_w.setitem(w_key, w_val)
 
+# XXX Native functions could be better represented by rpython-level function
+# rather than classes.
+# TODO: Apply python-level introspection and metaprogramming technique so
+# that we could write native functions more easily.
+
 class W_Apply(W_NativeClosureX):
     _symbol_ = 'apply'
 
@@ -241,14 +246,24 @@ class W_Exit(W_NativeClosure):
     def call(self, args_w):
         raise W_ExecutionError('SystemExit raised', '(exit)').wrap()
 
+def format_stack_trace(dump):
+    buf = []
+    while dump:
+        buf.append('%d: in %s' % (len(buf) + 1, dump.w_func.to_string()))
+        dump = dump.dump
+    buf.reverse()
+    return '\n'.join(buf)
+
 class W_Error(W_NativeClosureX):
     _symbol_ = 'error'
 
     def call_with_frame(self, args_w, frame, tailp):
         assert len(args_w) == 1
         w_msg, = args_w
-        raise W_ExecutionError('User-raised error: (error %s)' %
-                               w_msg.to_string(),
+        raise W_ExecutionError('User-raised error: (error %s)\n'
+                               'StackTrace:\n%s\n' %
+                               (w_msg.to_string(),
+                                   format_stack_trace(frame.dump)),
                                frame.w_func.to_string()).wrap()
 
 class W_OpenInputFile(W_NativeClosure):

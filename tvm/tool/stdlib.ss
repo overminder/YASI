@@ -1,3 +1,5 @@
+(define (id x) x)
+
 (define (caar x) (car (car x)))
 (define (cadr x) (car (cdr x)))
 (define (cdar x) (cdr (car x)))
@@ -60,10 +62,12 @@
 (define (list-ref lst n)
   (car (list-tail lst n)))
 
+;; tail-recursive map is 2 times faster than its non-tr counter part
 (define (map proc args)
-  (if (null? args) '()
-      (cons (proc (car args))
-            (map proc (cdr args)))))
+  (define (rev-map args res)
+    (if (null? args) res
+        (rev-map (cdr args) (cons (proc (car args)) res))))
+  (reverse (rev-map args '())))
 
 (define (for-each proc args)
   (if (null? args) '()
@@ -81,6 +85,23 @@
           (car alist)
           (assoc key (cdr alist)))))
 
+(define (range . args)
+  (define (mkrange start end step)
+    (if (< start end)
+        (cons start (mkrange (+ start step) end step))
+        '()))
+  (define len (length args))
+  (cond
+    ([= len 1]
+     (mkrange 0 (car args) 1))
+    ([= len 2]
+     (mkrange (car args) (cadr args) 1))
+    ([= len 3]
+     (mkrange (car args) (cadr args) (caddr args)))
+    (else
+     (error `(wrong argument count: range ,args)))))
+
+
 ;; utils
 (define (fibo n)
   (if (< n 2)
@@ -93,5 +114,15 @@
   (newline))
 
 (define write display) ;; for now
+
+(define (do-times n proc . args)
+  (define (thunk)
+    (apply proc args))
+  (define (loop n)
+    (if (< n 1) #f
+        (begin
+          (thunk)
+          (loop (- n 1)))))
+  (loop n))
 
 

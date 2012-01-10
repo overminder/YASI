@@ -3,8 +3,6 @@
     (if (eof-object? got) '()
         (cons got (apply read-program input-file)))))
 
-(define qq-stack 0)
-
 (define (expand-builtin-macro expr)
   (cond
     ([or (symbol? expr)
@@ -110,3 +108,7 @@
     (close-input-port file)
     `(begin ,@(expand-builtin-macro prog))))
 
+(define (expand-quasiquote form)
+  (if *inside-quasiquote* (error '(nested quasiquote not supported)))
+  (set! *inside-quasiquote* #t))
+  

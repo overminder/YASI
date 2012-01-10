@@ -91,16 +91,17 @@ class __extend__(Frame):
         nb_args = len(args_w)
         nb_locals = w_func.nb_locals
         i = 0
-        # set arguments
+        # Set arguments,
         while i < nb_args:
             self.stackset(i, args_w[i])
             i += 1
-        # and delete prev frame's garbage
+        # and delete prev frame's garbage.
         while i < oldtop:
             self.stackclear(i)
             i += 1
         if upvals_w:
-            # set upvals, since upvals are interleaved with normal locals,
+            # Put upvals on the stack.
+            # Since upvals are interleaved with other locals,
             # we need to apply some complex transformations...
             i = 0
             upval_descrs = w_func.upval_descrs
@@ -117,6 +118,7 @@ class __extend__(Frame):
         else:
             raise ReturnFromTopLevel(w_retval)
 
+    # It seems that tailp is automatically promoted.
     @unroll_safe
     def call_closure(self, w_closure, args_w, tailp):
         nb_args_supplied = len(args_w)
@@ -124,7 +126,7 @@ class __extend__(Frame):
             w_func = w_closure.w_func
             nb_args = w_func.nb_args
             if not w_func.has_vararg:
-                # fast path.
+                # Fast path.
                 if nb_args_supplied != nb_args:
                     raise W_ExecutionError('%s require exactly %d '
                     'argument, but got %s (%s)' %
@@ -145,11 +147,18 @@ class __extend__(Frame):
                     self.dump = Dump(self)
                 slice_start = nb_args - 1
                 assert slice_start >= 0
+                # Pack varargs into a list, but unrolling the loop for perf.
                 w_vararg = list_to_pair_unroll(args_w[slice_start:])
-                truncated_args_w = args_w[:nb_args]
-                truncated_args_w[nb_args - 1] = w_vararg
+                truncated_args_w = [None] * nb_args
+                i = 0
+                while i < nb_args - 1:
+                    truncated_args_w[i] = args_w[i]
+                    i += 1
+                truncated_args_w[i] = w_vararg
+                #
                 self.enter_with_args(w_func, truncated_args_w,
                                      w_closure.upvals_w)
+                #
         elif isinstance(w_closure, W_NativeClosure):
             w_retval = w_closure.call(args_w)
             if not tailp:
@@ -157,6 +166,7 @@ class __extend__(Frame):
             else:
                 self.leave_with_retval(w_retval)
         else:
+            # this kind of closures know how to manipulate frame
             assert isinstance(w_closure, W_NativeClosureX)
             w_closure.call_with_frame(args_w, self, tailp=tailp)
 
