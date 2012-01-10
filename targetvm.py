@@ -1,5 +1,5 @@
 import sys
-from tvm import config
+from tvm.config import configpool
 from tvm.error import OperationError
 from tvm.lang.reader import read_string
 from tvm.rt.prelude import populate_module
@@ -22,6 +22,7 @@ def run_compiled_code(filename):
     execute_function(w_func, [])
 
 def main(argv):
+    configpool.make_default()
     try:
         filename = argv[1]
     except (IndexError, ValueError):
@@ -31,16 +32,17 @@ def main(argv):
         if argv[2] == '--stacksize':
             stacksize = int(argv[3])
             assert stacksize >= 0
-            config.default.vm_stacksize = stacksize
+            configpool.default.vm_stacksize = stacksize
     except (IndexError, ValueError):
         pass
-
-    try:
-        run_compiled_code(filename)
-    except OperationError as e:
-        print e.unwrap().to_string()
-        return 1
+    #
+    run_compiled_code(filename)
+    #
+    leave_program()
     return 0
+
+def leave_program():
+    configpool.default.stdout.flush()
 
 def target(config, argl):
     return main, None

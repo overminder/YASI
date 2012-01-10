@@ -73,5 +73,9 @@ class W_UpVal(W_Root):
         self.w_value = w_value
 
     def to_string(self):
-        return '#<upval (%s)>' % self.w_value.to_string()
+        if self.w_value:
+            val_repr = self.w_value.to_string()
+        else:
+            val_repr = '(null)'
+        return '#<upval %s>' % val_repr
 

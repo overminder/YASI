@@ -1,5 +1,7 @@
 (define *debug* #f)
 
+(define *tail-call-opt* #f)
+
 (if *debug*
     (import (ice-9 pretty-print)))
 
@@ -62,7 +64,7 @@
              `(,op ,(car oparg)))
             ([= size 3]
              `(,op ,(logand (car oparg) 255)
-                   ,(logand (ash -8 (car oparg)) 255))))))))
+                   ,(logand (ash (car oparg) -8) 255))))))))
 
 ;; entry point
 (define (compile-program program)
@@ -73,12 +75,13 @@
   (main-function 'format-output))
 
 (define (compile-function body function)
-  (let ([body-len (length body)])
+  (let ([body-len (length body)]
+        [tail? (not (function 'is-toplevel?))]) ;; no tailcall at toplevel
     (for-each (lambda (expr)
                 (compile-expr-in expr function #f)
                 (function 'emit 'POP))
               (list-head body (- body-len 1)))
-    (compile-expr-in (list-ref body (- body-len 1)) function #t))
+    (compile-expr-in (list-ref body (- body-len 1)) function tail?))
   (function 'emit 'RET)
   (function 'resolve-deferred-lambda))
 
@@ -214,9 +217,9 @@
               (compile-expr-in expr function #f))
             args)
   (compile-expr-in proc function #f)
-  (if tailp
-    (function 'emit 'TAILCALL (length args))
-    (function 'emit 'CALL (length args))))
+  (if (and tailp *tail-call-opt*)
+      (function 'emit 'TAILCALL (length args))
+      (function 'emit 'CALL (length args))))
 
 ;; Context and Function
 
@@ -295,6 +298,19 @@
                 *raw-code*))
 
     (define (insert-upval-builder)
+      ;; patch jumps
+      (define new-upval-len (length *promoted-upvals*))
+      (set! new-upval-len (+ new-upval-len new-upval-len))
+      (for-each (lambda (code)
+                  (let ([opname (car code)]
+                        [oparg (cdr code)])
+                    (cond
+                      ([or (eq? opname 'J)
+                           (eq? opname 'JIF)
+                           (eq? opname 'JIFNOT)]
+                       (set-car! oparg (+ (car oparg) new-upval-len))))))
+                *raw-code*)
+      ;; and insert upval builder
       (set! *raw-code* (append *raw-code*
                                (map (lambda (index)
                                       `(BUILDUPVAL ,index))

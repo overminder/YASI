@@ -1,8 +1,3 @@
-(define (read-program . input-file)
-  (let ([got (apply read input-file)])
-    (if (eof-object? got) '()
-        (cons got (apply read-program input-file)))))
-
 (define (expand-builtin-macro expr)
   (cond
     ([or (symbol? expr)

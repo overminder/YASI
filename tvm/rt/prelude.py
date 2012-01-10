@@ -1,4 +1,5 @@
 from pypy.rlib.jit import hint, unroll_safe
+from tvm.config import configpool
 from tvm.asm.assembler import load_bytecode_function, dump_bytecode_function
 from tvm.rt.baseframe import W_ExecutionError
 from tvm.rt.code import W_BytecodeClosure, W_BytecodeFunction
@@ -7,7 +8,7 @@ from tvm.lang.reader import read_string
 from tvm.lang.model import (W_Pair, W_Root, w_boolean, W_Integer,
                             W_Boolean, W_Symbol, symbol,
                             W_Unspecified, w_unspec, W_String,
-                            W_File, gensym, w_eof)
+                            W_File, gensym, w_eof, list_to_pair)
 
 prelude_registry = []
 
@@ -109,11 +110,9 @@ class W_Display(W_NativeClosure):
     _symbol_ = 'display'
 
     def call(self, args_w):
-        from pypy.rlib.streamio import fdopen_as_stream
         assert len(args_w) == 1
         w_arg, = args_w
-        stdin = fdopen_as_stream(0, 'r')
-        stdin.write(w_arg.to_string())
+        configpool.default.stdout.write(w_arg.to_string())
         return w_unspec
 
 class W_Newline(W_NativeClosure):
@@ -122,8 +121,7 @@ class W_Newline(W_NativeClosure):
     def call(self, args_w):
         from pypy.rlib.streamio import fdopen_as_stream
         assert len(args_w) == 0
-        stdin = fdopen_as_stream(0, 'r')
-        stdin.write('\n')
+        configpool.default.stdout.write('\n')
         return w_unspec
 
 class W_Eqp(W_NativeClosure):
@@ -246,14 +244,6 @@ class W_Exit(W_NativeClosure):
     def call(self, args_w):
         raise W_ExecutionError('SystemExit raised', '(exit)').wrap()
 
-def format_stack_trace(dump):
-    buf = []
-    while dump:
-        buf.append('%d: in %s' % (len(buf) + 1, dump.w_func.to_string()))
-        dump = dump.dump
-    buf.reverse()
-    return '\n'.join(buf)
-
 class W_Error(W_NativeClosureX):
     _symbol_ = 'error'
 
@@ -263,7 +253,7 @@ class W_Error(W_NativeClosureX):
         raise W_ExecutionError('User-raised error: (error %s)\n'
                                'StackTrace:\n%s\n' %
                                (w_msg.to_string(),
-                                   format_stack_trace(frame.dump)),
+                                frame.dump.format_stack_trace()),
                                frame.w_func.to_string()).wrap()
 
 class W_OpenInputFile(W_NativeClosure):
@@ -280,16 +270,15 @@ class W_Read(W_NativeClosure):
     _symbol_ = 'read'
 
     def call(self, args_w):
-        from pypy.rlib.streamio import fdopen_as_stream
         if len(args_w) == 0: # from stdin XXX use current-input-port
-            stdin = fdopen_as_stream(0, 'r')
+            stdin = configpool.default.stdin
             content = stdin.readall()
-            return read_string(content)[0]
+            return list_to_pair(read_string(content)[:]) # XXX different
         else:
             assert len(args_w) == 1 # from given file
             w_file, = args_w
             assert isinstance(w_file, W_File)
-            return read_string(w_file.w_readall().content())[0]
+            return list_to_pair(read_string(w_file.w_readall().content())[:])
 
 class W_CloseInputPort(W_NativeClosure):
     _symbol_ = 'close-input-port'
@@ -324,6 +313,26 @@ class W_Gensym(W_NativeClosure):
 
     def call(self, args_w):
         return gensym() # XXX ignoring argument
+
+class W_LogAnd(W_NativeClosure):
+    _symbol_ = 'logand'
+
+    def call(self, args_w):
+        assert len(args_w) == 2
+        w_x, w_y = args_w
+        return W_Integer(w_x.to_int() & w_y.to_int())
+
+class W_ArithShift(W_NativeClosure):
+    _symbol_ = 'ash'
+
+    def call(self, args_w):
+        assert len(args_w) == 2
+        w_x, w_y = args_w
+        x, y = w_x.to_int(), w_y.to_int()
+        if y < 0:
+            return W_Integer(x >> (-y))
+        else:
+            return W_Integer(x << y)
 
 # some custom functions
 

@@ -3,13 +3,15 @@ from pypy.rlib.jit import dont_look_inside
 from pypy.rlib.parsing.makepackrat import (PackratParser, Status,
                                            BacktrackException)
 from tvm.lang.model import (W_Root, W_Integer, W_Pair, w_nil, w_true, w_false,
-                            symbol, w_unspec, W_String)
+                            symbol, w_unspec, W_String, w_eof)
 
 @dont_look_inside
 def read_string(source):
     exprs_w = SchemeParser(source).program()
-    assert isinstance(exprs_w[0], W_Root) # XXX pypy hack
-    return exprs_w
+    if len(exprs_w) == 0:
+        return [w_eof]
+    else:
+        return exprs_w
 
 def w_tag(s, w_x):
     return W_Pair(symbol(s), W_Pair(w_x, w_nil))
@@ -79,20 +81,39 @@ class SchemeParser(PackratParser):
         c = sexpr
         return {w_tag('quote', c)}
       | IGNORE*
+        '`'
+        c = sexpr
+        return {w_tag('quasiquote', c)}
+      | IGNORE*
+        ',@'
+        c = sexpr
+        return {w_tag('unquote-splicing', c)}
+      | IGNORE*
+        ','
+        c = sexpr
+        return {w_tag('unquote', c)}
+      | IGNORE*
         '('
         c = pair
         IGNORE*
         ')'
+        return {c}
+      | IGNORE*
+        '['
+        c = pair
+        IGNORE*
+        ']'
         return {c};
 
     pair:
         car = sexpr
-        cdr = pair
+        IGNORE+
+        '.'
+        IGNORE+
+        cdr = sexpr
         return {W_Pair(car, cdr)}
       | car = sexpr
-        IGNORE*
-        '.'
-        cdr = sexpr
+        cdr = pair
         return {W_Pair(car, cdr)}
       | return {w_nil};
     '''

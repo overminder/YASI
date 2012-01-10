@@ -1,6 +1,7 @@
 from pypy.rlib.unroll import unrolling_iterable
 from pypy.rlib.jit import hint, unroll_safe, dont_look_inside
 from pypy.rlib.objectmodel import we_are_translated
+from tvm.error import OperationError
 from tvm.rt.code import codemap, argwidth
 from tvm.rt.interp import Frame, ReturnFromTopLevel
 from tvm.rt.jit import jitdriver
@@ -11,16 +12,27 @@ unrolled_dispatchers = unrolling_iterable([(i, getattr(Frame, name))
 def execute_function(w_func, args_w):
     frame = Frame()
     frame.enter_with_args(w_func, args_w) # plain function has no upvals
-    if not we_are_translated():
-        try:
+    try:
+        if not we_are_translated():
+            try:
+                return frame.execute()
+            except Exception as e:
+                import traceback
+                print traceback.format_exc(e)
+                print '### Exception at %s' % frame.w_func.to_string()
+                if isinstance(e, OperationError):
+                    print '### Reason: %s' % e.unwrap().to_string()
+                else:
+                    print '### Reason: %s' % e
+                print '### Frame: %r' % frame
+                print '### StackTrace:'
+                print frame.dump.format_stack_trace()
+                return None
+        else:
             return frame.execute()
-        except AssertionError as e:
-            print '### AssertionError at %s' % frame.w_func.to_string()
-            print '### Reason: %s' % e
-            print '### Frame: %r' % frame
-            raise
-    else:
-        return frame.execute()
+    except OperationError as e:
+        print e.unwrap().to_string()
+        return None
 
 class __extend__(Frame):
     @unroll_safe

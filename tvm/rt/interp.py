@@ -1,5 +1,5 @@
-from pypy.rlib.jit import hint, unroll_safe
-from tvm import config
+from pypy.rlib.jit import hint, unroll_safe, dont_look_inside
+from tvm.config import configpool
 from tvm.rt.baseframe import Frame, W_ExecutionError
 from tvm.rt.code import codemap, W_BytecodeClosure, W_BytecodeFunction, W_UpVal
 from tvm.rt.native import W_NativeClosure, W_NativeClosureX
@@ -46,6 +46,15 @@ class Dump(object):
             frame.stack_w[i] = None
             i += 1
 
+    @dont_look_inside
+    def format_stack_trace(self):
+        buf = []
+        while self:
+            buf.append('%d: in %s' % (len(buf) + 1, self.w_func.to_string()))
+            self = self.dump
+        buf.reverse()
+        return '\n'.join(buf)
+
 
 class __extend__(Frame):
     _virtualizable2_ = [
@@ -69,7 +78,7 @@ class __extend__(Frame):
     def __init__(self):
         self = hint(self, access_directly=True,
                           fresh_virtualizable=True)
-        self.stack_w = [None] * config.default.vm_stacksize
+        self.stack_w = [None] * configpool.default.vm_stacksize
 
     def __repr__(self):
         from pprint import pprint
@@ -180,7 +189,8 @@ class __extend__(Frame):
     def nextshort(self, code):
         byte0 = self.nextbyte(code)
         byte1 = self.nextbyte(code)
-        return (byte1 << 8) | byte0
+        short_val = (byte1 << 8) | byte0
+        return short_val
 
     # bytecode dispatchers
 
