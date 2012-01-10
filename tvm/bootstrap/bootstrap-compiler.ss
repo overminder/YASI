@@ -1,6 +1,6 @@
 (define *debug* #f)
 
-(define *tail-call-opt* #f)
+(define *tail-call-opt* #t)
 
 (if *debug*
     (import (ice-9 pretty-print)))

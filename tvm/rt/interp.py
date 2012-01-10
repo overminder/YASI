@@ -1,5 +1,5 @@
 from pypy.rlib.jit import hint, unroll_safe, dont_look_inside
-from tvm.config import configpool
+from tvm import config
 from tvm.rt.baseframe import Frame, W_ExecutionError
 from tvm.rt.code import codemap, W_BytecodeClosure, W_BytecodeFunction, W_UpVal
 from tvm.rt.native import W_NativeClosure, W_NativeClosureX
@@ -78,7 +78,7 @@ class __extend__(Frame):
     def __init__(self):
         self = hint(self, access_directly=True,
                           fresh_virtualizable=True)
-        self.stack_w = [None] * configpool.default.vm_stacksize
+        self.stack_w = [None] * config.default.vm_stacksize
 
     def __repr__(self):
         from pprint import pprint

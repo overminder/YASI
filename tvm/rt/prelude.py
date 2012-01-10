@@ -1,5 +1,5 @@
 from pypy.rlib.jit import hint, unroll_safe
-from tvm.config import configpool
+from tvm import config
 from tvm.asm.assembler import load_bytecode_function, dump_bytecode_function
 from tvm.rt.baseframe import W_ExecutionError
 from tvm.rt.code import W_BytecodeClosure, W_BytecodeFunction
@@ -112,7 +112,7 @@ class W_Display(W_NativeClosure):
     def call(self, args_w):
         assert len(args_w) == 1
         w_arg, = args_w
-        configpool.default.stdout.write(w_arg.to_string())
+        config.default.stdout.write(w_arg.to_string())
         return w_unspec
 
 class W_Newline(W_NativeClosure):
@@ -121,7 +121,7 @@ class W_Newline(W_NativeClosure):
     def call(self, args_w):
         from pypy.rlib.streamio import fdopen_as_stream
         assert len(args_w) == 0
-        configpool.default.stdout.write('\n')
+        config.default.stdout.write('\n')
         return w_unspec
 
 class W_Eqp(W_NativeClosure):
@@ -271,7 +271,7 @@ class W_Read(W_NativeClosure):
 
     def call(self, args_w):
         if len(args_w) == 0: # from stdin XXX use current-input-port
-            stdin = configpool.default.stdin
+            stdin = config.default.stdin
             content = stdin.readall()
             return list_to_pair(read_string(content)[:]) # XXX different
         else:

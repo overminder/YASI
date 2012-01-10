@@ -62,27 +62,33 @@ def dump_bytecode_function(w_func):
     fields_w = [None] * 9
     fields_w[0] = symbol('BYTECODE-FUNCTION')
     fields_w[1] = list_to_pair([symbol('NAME'), symbol(w_func.name)])
-    w_code = list_to_pair([W_Integer(ord(c)) for c in w_func.code])
+    #
+    code_w = [None] * len(w_func.code)
+    for i in xrange(len(code_w)):
+        code_w[i] = W_Integer(ord(w_func.code[i]))
+    w_code = list_to_pair(code_w)
     fields_w[2] = list_to_pair([symbol('CODE'), w_code])
     fields_w[3] = list_to_pair([symbol('NB-ARGS'), W_Integer(w_func.nb_args),
                                 w_boolean(w_func.has_vararg)])
     fields_w[4] = list_to_pair([symbol('NB-LOCALS'),
                                 W_Integer(w_func.nb_locals)])
-    upval_descrs_w = []
+    upval_descrs_w = [None] * (len(w_func.upval_descrs) >> 1)
     i = 0
     while i < len(w_func.upval_descrs):
         c0, c1 = w_func.upval_descrs[i], w_func.upval_descrs[i + 1]
+        upval_descrs_w[i >> 1] = list_to_pair([W_Integer(ord(c0)),
+                                               W_Integer(ord(c1))])
         i += 2
-        upval_descrs_w.append(list_to_pair([W_Integer(ord(c0)),
-                                            W_Integer(ord(c1))]))
+    #
     w_upval_descrs = list_to_pair(upval_descrs_w[:])
     fields_w[5] = list_to_pair([symbol('UPVAL-DESCRS'), w_upval_descrs])
-    w_consts = list_to_pair(w_func.consts_w)
+    w_consts = list_to_pair(w_func.consts_w[:])
     fields_w[6] = list_to_pair([symbol('CONSTS'), w_consts])
-    w_names = list_to_pair(w_func.names_w)
+    w_names = list_to_pair(w_func.names_w[:])
     fields_w[7] = list_to_pair([symbol('NAMES'), w_names])
-    w_functions = list_to_pair([dump_bytecode_function(w_function)
-                                for w_function in w_func.functions_w])
+    functions_w = [dump_bytecode_function(w_function)
+                   for w_function in w_func.functions_w]
+    w_functions = list_to_pair(functions_w[:])
     fields_w[8] = list_to_pair([symbol('FUNCTIONS'), w_functions])
     return list_to_pair(fields_w)
 

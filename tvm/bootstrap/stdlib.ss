@@ -82,7 +82,7 @@
             n
             (loop (cdr lst) (+ n 1)))))
   (loop lst 0))
-                    
+
 
 ;; tail-recursive map is 2 times faster than its non-tr counter part
 (define (map proc args)

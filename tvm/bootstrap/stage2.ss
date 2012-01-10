@@ -5,10 +5,22 @@
 (define *debug* #f)
 
 (define *bytecode-descr*
-  (let ([descr-file (open-input-file "bytecode-descr.ss")])
-    (let ([content (car (read descr-file))])
-      (close-input-port descr-file)
-      content)))
+ '((J 0 u16)
+   (JIF 1 u16)
+   (JIFNOT 2 u16)
+   (LOAD 3 u8)
+   (STORE 4 u8)
+   (BUILDUPVAL 5 u8)
+   (LOADUPVAL 6 u8)
+   (STOREUPVAL 7 u8)
+   (LOADGLOBAL 8 u8)
+   (STOREGLOBAL 9 u8)
+   (LOADCONST 10 u8)
+   (BUILDCLOSURE 11 u8)
+   (CALL 12 u8)
+   (TAILCALL 13 u8)
+   (RET 14 void)
+   (POP 15 void)))
 
 (define (codesize code)
   (let ([size-descr (caddr (assoc (car code) *bytecode-descr*))])
@@ -188,8 +200,8 @@
             args)
   (compile-expr-in proc function #f)
   (if tailp
-    (function 'emit 'TAILCALL (length args))
-    (function 'emit 'CALL (length args))))
+      (function 'emit 'TAILCALL (length args))
+      (function 'emit 'CALL (length args))))
 
 ;; Compilation unit: function
 (define (make-function *name* *formal-args* *outer*)
@@ -401,6 +413,4 @@
   (define loaded-function (load-bytecode-function compiled-code))
   (loaded-function))
 
-;; So we actually can dynamically compile and run programs now.
-(run-program (read-program))
 
